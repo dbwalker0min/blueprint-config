@@ -1,45 +1,29 @@
-# `pyscript-bp-config` Design
+# `blueprint-config` Design
 
 **Status:** Draft  
-**Design version:** 0.3  
-**Last revised:** 2026-08-12  
+**Design version:** 0.4  
+**Last revised:** 2026-08-13  
 **Canonical format:** Markdown
 
 ## 1. Summary
 
-`pyscript-bp-config` provides GUI-backed, typed configuration for Home Assistant PyScript applications by using **script blueprints as configuration instances**.
+`blueprint-config` provides GUI-backed, typed configuration for Home Assistant PyScript logic by using **script blueprints as configuration instances**.
 
-A compact YAML schema describes:
+A compact YAML definition lives beside the PyScript source and contains:
 
 - framework metadata under `pyscript:`;
 - the blueprint display name and description; and
-- configuration fields using Home Assistant's native blueprint `input:` and selector syntax.
+- configuration fields expressed directly with Home Assistant's native blueprint `input:` and selector syntax.
 
-From that one schema, a generator produces:
+From that one source definition, a developer-time generator produces:
 
-1. a Home Assistant **script blueprint** that collects configuration values and returns them as script response data;
-2. an importable PyScript **runtime module** that discovers scripts based on that blueprint and converts their returned values into immutable `attrs` objects; and
+1. a Home Assistant **script blueprint** that collects the selected values and returns them as script response data;
+2. an importable PyScript **runtime module** that discovers script instances based on that blueprint and converts their responses into immutable `attrs` objects; and
 3. a matching **`.pyi` type stub** for Pylance/Pyright and other type-aware tooling.
 
-The application then consumes configuration through ordinary Python attributes:
+The generated artifacts can also be staged under a co-located `#generated/` directory for packaging and redistribution. Those staged files are build products; end users of a distributed package should not need to run the generator.
 
-```python
-from bpconfig.powerwall_export import CONFIG
-
-if CONFIG.enabled and battery_soc > CONFIG.min_soc:
-    ...
-```
-
-For a configuration type that supports multiple instances:
-
-```python
-from bpconfig.room_control import CONFIGS
-
-for config in CONFIGS:
-    control_room(config)
-```
-
-Home Assistant owns selector-value validation. The framework validates only its own metadata and runtime structural contract, enforces the requested number of configuration instances, and performs lightweight representation conversion where useful.
+Home Assistant owns selector-value validation. The framework validates only its own metadata and runtime contract, enforces the requested instance cardinality, and performs lightweight representation conversion where useful.
 
 ---
 
@@ -47,15 +31,19 @@ Home Assistant owns selector-value validation. The framework validates only its 
 
 The framework should:
 
-- expose PyScript application configuration through Home Assistant's existing GUI;
-- use Home Assistant's own blueprint input/selector syntax instead of inventing a parallel field DSL;
+- expose PyScript configuration through Home Assistant's existing GUI;
+- use Home Assistant's own blueprint input/selector syntax rather than inventing a parallel field DSL;
 - support typed attribute access such as `CONFIG.min_soc` and `CONFIG.export.start`;
-- support nested structured data through selectors that actually return mappings, especially the object selector;
+- support actual nested structured values, especially through the object selector;
 - support both exactly-one and multiple configuration instances;
-- make every schema file self-contained so generation requires no extra metadata arguments;
+- make every definition file self-contained so generation requires no extra per-schema arguments;
 - generate blueprint YAML, runtime loading code, and `.pyi` typing information from one source of truth;
-- work naturally from both normal PyScript files and the PyScript Jupyter environment;
-- rely on Home Assistant for selector parsing and validation wherever practical; and
+- work with top-level PyScript files, files under `pyscript/scripts`, or PyScript apps without requiring any one layout;
+- work naturally from Jupyter during development;
+- keep generated runtime modules in PyScript's supported `modules` tree;
+- keep the schema definition physically beside the source logic when desired;
+- support distributable packages that contain all generated artifacts and therefore require no generation on the recipient system;
+- rely on Home Assistant for selector-value validation; and
 - keep dependence on Home Assistant Python internals narrow and isolated.
 
 ## 3. Non-goals
@@ -63,21 +51,23 @@ The framework should:
 The framework is not intended to:
 
 - replace Home Assistant config entries;
-- become a general-purpose Home Assistant integration framework;
-- duplicate Home Assistant's selector validation in `attrs`, Voluptuous, or framework-specific validators;
+- require the consumer to be a PyScript App;
+- turn arbitrary directories under `pyscript/scripts` into Python packages;
+- duplicate Home Assistant selector validation in `attrs`, Voluptuous, or framework-specific validators;
 - manage secrets;
-- require code generation on every Home Assistant startup; or
+- require generation on Home Assistant startup;
+- require generation during package installation; or
 - infer arbitrary Python models from unrelated YAML.
 
 ---
 
 ## 4. Terminology
 
-**Schema**  
-The source YAML file consumed by `pyscript-bp-config`.
+**Definition file**  
+The canonical source YAML file, normally named `blueprint_config.yaml`, consumed by `blueprint-config`.
 
 **Generated blueprint**  
-A Home Assistant script blueprint generated from the schema.
+A Home Assistant script blueprint generated from the definition file.
 
 **Configuration instance**  
 A Home Assistant script created from the generated blueprint. Each such script stores one set of user-selected configuration values.
@@ -88,11 +78,109 @@ Generated/importable Python code that discovers configuration instances, calls t
 **Configuration model**  
 The immutable nested `attrs` object exposed to PyScript application code.
 
+**Consumer**  
+The PyScript logic that imports and uses `CONFIG` or `CONFIGS`. A consumer may be a top-level PyScript file, a file below `scripts/`, or an App.
+
+**Staged artifact**  
+A generated file stored under the source unit's `#generated/` directory for inspection, version control, packaging, or redistribution.
+
+**Installed artifact**  
+The copy of a generated file placed in the Home Assistant path from which it is actually consumed.
+
 ---
 
-## 5. Canonical schema format
+## 5. Naming
 
-The schema intentionally resembles the `blueprint:` metadata of a Home Assistant blueprint. The only framework-specific portion is the top-level `pyscript:` block.
+Use the shorter, unambiguous names:
+
+```text
+Distribution / repository: blueprint-config
+Python package:            blueprint_config
+CLI command:               blueprint-config
+PyScript framework module: blueprint_config
+```
+
+The framework's live PyScript package normally resides at:
+
+```text
+<config>/pyscript/modules/blueprint_config/
+```
+
+Generated runtime adapters can live under:
+
+```text
+<config>/pyscript/modules/blueprint_config/generated/
+```
+
+A normal consumer import is therefore:
+
+```python
+from blueprint_config.generated.powerwall_export import CONFIG
+```
+
+or, for a multiple-instance configuration:
+
+```python
+from blueprint_config.generated.room_control import CONFIGS
+```
+
+---
+
+## 6. Recommended source layout
+
+The framework must not require a PyScript App. A convenient layout for a logical unit is:
+
+```text
+<config>/pyscript/
+└── scripts/
+    └── powerwall_export/
+        ├── powerwall_export.py
+        ├── blueprint_config.yaml
+        └── #generated/
+            ├── powerwall_export.yaml
+            ├── powerwall_export.py
+            └── powerwall_export.pyi
+```
+
+PyScript recursively autoloads `.py` files below `pyscript/scripts`, but skips directories whose names begin with `#`. Therefore `#generated/` is a useful package-staging location: it can contain generated `.py` files without causing them to be autoloaded as independent PyScript global contexts.
+
+The actual importable runtime copies live elsewhere:
+
+```text
+<config>/pyscript/modules/
+└── blueprint_config/
+    ├── __init__.py
+    └── generated/
+        ├── __init__.py
+        ├── powerwall_export.py
+        └── powerwall_export.pyi
+```
+
+The actual Home Assistant blueprint copy lives at:
+
+```text
+<config>/blueprints/script/blueprint_config/powerwall_export.yaml
+```
+
+### 6.1 Why not make the source directory a Python package?
+
+Directories under `pyscript/scripts` are organizational only. Their `.py` files are recursively autoloaded as independent PyScript global contexts; an `__init__.py` there does not turn the directory into an ordinary importable package.
+
+Importable PyScript modules belong under `pyscript/modules`, while package-form PyScript Apps belong under `pyscript/apps`.
+
+The framework therefore uses `scripts/<unit>/` for source organization and `modules/blueprint_config/generated/` for generated importable runtime code.
+
+### 6.2 The `#` trick is optional
+
+A leading-`#` directory is useful when generated or development-only `.py` files must sit beside PyScript source. It should remain an optional organizational mechanism, not a runtime requirement.
+
+If a developer ever needs to import ordinary native Python from such an ignored directory, the directory can be placed on `PYTHONPATH`/`sys.path` in an appropriate native-Python environment. That is an escape hatch rather than the normal framework design.
+
+---
+
+## 7. Canonical definition format
+
+The definition intentionally resembles the metadata and `input:` portion of a Home Assistant blueprint. The only framework-specific portion is the top-level `pyscript:` block.
 
 ```yaml
 pyscript:
@@ -147,7 +235,7 @@ input:
                 max: 10000
 ```
 
-### 5.1 Framework metadata
+### 7.1 Framework metadata
 
 Initial metadata should remain deliberately small:
 
@@ -166,10 +254,10 @@ For example:
 ```text
 module: powerwall_export
 
-blueprint path:  pyscript/powerwall_export.yaml
-runtime module:  bpconfig/powerwall_export.py
-stub:            bpconfig/powerwall_export.pyi
-model class:     PowerwallExportConfig
+installed blueprint: blueprints/script/blueprint_config/powerwall_export.yaml
+runtime module:      blueprint_config/generated/powerwall_export.py
+stub:                blueprint_config/generated/powerwall_export.pyi
+model class:         PowerwallExportConfig
 ```
 
 The module identifier, not the human-readable blueprint name, is the stable identity of the configuration type.
@@ -197,12 +285,12 @@ CONFIG: PowerwallExportConfig
 `many` causes it to export:
 
 ```python
-CONFIGS: list[PowerwallExportConfig]
+CONFIGS: tuple[PowerwallExportConfig, ...]
 ```
 
-A future version could generalize cardinality if a real use case appears, but the first design should not add unused `minimum`, `maximum`, or similar options.
+A future version can generalize cardinality if a real use case appears.
 
-### 5.2 Blueprint name and description
+### 7.2 Blueprint name and description
 
 `name` is required and remains outside `pyscript:` because it is native blueprint metadata:
 
@@ -217,11 +305,11 @@ description: >
   Configuration for scheduled Powerwall export behavior.
 ```
 
-Input and section descriptions should likewise be preserved as native Home Assistant metadata. They provide useful GUI documentation essentially for free and may later be reused in generated documentation.
+Input, section, and object-field descriptions should likewise be preserved as native Home Assistant metadata. They provide useful GUI documentation essentially for free.
 
-### 5.3 No separate Python selector DSL
+### 7.3 No separate Python selector DSL
 
-The framework should **not** introduce constructs such as:
+The framework should **not** introduce parallel constructs such as:
 
 ```python
 Number(...)
@@ -230,11 +318,11 @@ Entity(...)
 Group(...)
 ```
 
-Home Assistant's selector syntax is already the schema language. This avoids maintaining a second representation of every selector and reduces the amount of framework code that must track Home Assistant changes.
+Home Assistant's selector syntax is already the schema language.
 
 ---
 
-## 6. Input sections versus nested data
+## 8. Input sections versus nested data
 
 Home Assistant blueprint input sections are **UI grouping only**. Inputs inside a section still have globally unique names and are referenced directly by those names.
 
@@ -284,90 +372,76 @@ CONFIG.export.start
 CONFIG.export.end
 ```
 
-An object selector with `multiple: true` can naturally map to a typed collection of nested model objects.
+An object selector with `multiple: true` can naturally map to a typed immutable collection of nested model objects.
 
 ---
 
-## 7. Home Assistant as schema parser
+## 9. Parsing and Home Assistant validation
 
-The framework should avoid implementing its own blueprint parser.
+The framework should avoid becoming a second implementation of Home Assistant's blueprint parser.
 
-### 7.1 Validate the synthesized blueprint
+### 9.1 Generator should remain usable as a normal Python CLI
 
-The generator should construct the complete blueprint structure and pass it through Home Assistant's blueprint schema:
+Generation is a developer/build-time activity and should be invokable from a shell or Jupyter terminal:
+
+```bash
+blueprint-config generate \
+    /config/pyscript/scripts/powerwall_export/blueprint_config.yaml
+```
+
+or recursively:
+
+```bash
+blueprint-config generate /config/pyscript/scripts
+```
+
+The recursive form should discover `blueprint_config.yaml` files automatically.
+
+The command should also be available as:
+
+```bash
+python -m blueprint_config generate ...
+```
+
+The Python distribution can expose the console command through `pyproject.toml`:
+
+```toml
+[project.scripts]
+blueprint-config = "blueprint_config.cli:main"
+```
+
+### 9.2 Do not require a full Home Assistant installation merely to generate files
+
+The core generator should be able to read the definition, copy/pass through native blueprint input syntax, inspect selector shapes needed for typing, and emit artifacts without requiring the entire Home Assistant package as a dependency.
+
+When Home Assistant's Python package is available, the generator may optionally validate the synthesized blueprint using Home Assistant's own schema:
 
 ```python
 from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA
-
-blueprint_data = {
-    "blueprint": {
-        "name": schema["name"],
-        "description": schema.get("description"),
-        "domain": "script",
-        "input": schema.get("input", {}),
-    },
-    "sequence": generated_sequence,
-}
-
-validated = BLUEPRINT_SCHEMA(blueprint_data)
 ```
 
-This delegates blueprint metadata, input-section, selector declaration, and duplicate-input-name validation to Home Assistant.
+That exact validation is useful during development, but Home Assistant itself remains the final authority when it loads the installed blueprint.
 
-The narrower `BLUEPRINT_INPUT_SCHEMA` and `BLUEPRINT_INPUT_SECTION_SCHEMA` currently exist in Home Assistant Core, but the framework should prefer the full `BLUEPRINT_SCHEMA` so it depends on fewer implementation-level objects.
+### 9.3 Preserve the input tree
 
-### 7.2 Preserve the input tree
+If Home Assistant helpers are used, avoid relying on flattened input representations when layout/documentation information is needed. Preserve the original/validated `input` tree so input sections remain distinguishable from actual object-selector nesting.
 
-Home Assistant exposes helpers that flatten sectioned inputs for blueprint processing. That flattened representation is useful for resolving `!input` references, but it loses section structure.
+### 9.4 Selector analysis is intentionally shallow
 
-The generator should therefore retain the validated/original `blueprint.input` tree when it needs layout or documentation information.
-
-### 7.3 Use selector helpers for type analysis
-
-Selector declarations can be interpreted using Home Assistant's selector helper:
-
-```python
-from homeassistant.helpers import selector
-
-sel = selector.selector(input_definition["selector"])
-```
-
-The framework uses the resulting selector object/configuration only to infer:
+The generator needs to understand selector declarations only far enough to derive:
 
 - a Python static type;
-- whether a value is scalar or multiple;
-- whether recursive object handling is needed; and
-- whether a representation conversion is desirable.
+- scalar versus multiple value shape;
+- recursive object structure; and
+- optional representation conversions.
 
-It should not build a second validator from this information.
+It should not duplicate selector-value validation.
 
 ---
 
-## 8. Generated artifacts
+## 10. Generated script blueprint
 
-Given:
-
-```text
-schemas/powerwall_export.yaml
-```
-
-the generator should derive all outputs from the schema metadata:
-
-```text
-schemas/powerwall_export.yaml
-        |
-        +--> <config>/blueprints/script/pyscript/powerwall_export.yaml
-        |
-        +--> <config>/pyscript/modules/bpconfig/powerwall_export.py
-        |
-        +--> <config>/pyscript/modules/bpconfig/powerwall_export.pyi
-```
-
-The exact root paths may be configurable globally, but no per-schema naming arguments should be required.
-
-### 8.1 Generated script blueprint
-
-The generated blueprint contains no application behavior. Its only job is to collect the selected inputs and return them as a mapping.
+The generated blueprint contains no application behavior. Its only job is to collect selected inputs and return them as a mapping.
 
 Conceptually:
 
@@ -377,7 +451,7 @@ blueprint:
   description: Configuration for scheduled Powerwall export behavior.
   domain: script
   input:
-    # copied from schema
+    # copied from definition
     ...
 
 sequence:
@@ -387,30 +461,30 @@ sequence:
         min_soc: !input min_soc
         export: !input export
 
-  - stop: Return PyScript configuration
+  - stop: Return blueprint configuration
     response_variable: config
 ```
 
-Home Assistant requires returned script response data to be a mapping. That is a good fit for the configuration boundary.
+The generated sequence should be mechanical and framework-owned.
 
 ---
 
-## 9. Runtime discovery
+## 11. Runtime discovery
 
-The runtime adapter discovers configuration scripts by the generated blueprint path, not by script entity naming convention.
+The runtime adapter discovers configuration scripts by the installed generated blueprint path, not by script entity naming convention.
 
-Home Assistant Core currently provides:
+Home Assistant Core currently provides helpers such as:
 
 ```python
 from homeassistant.components.script import scripts_with_blueprint
 
 entity_ids = scripts_with_blueprint(
     hass,
-    "pyscript/powerwall_export.yaml",
+    "blueprint_config/powerwall_export.yaml",
 )
 ```
 
-It also provides the inverse helper:
+and the inverse helper:
 
 ```python
 from homeassistant.components.script import blueprint_in_script
@@ -418,17 +492,15 @@ from homeassistant.components.script import blueprint_in_script
 
 All dependence on these Home Assistant Core helpers should live behind one small framework adapter.
 
-### 9.1 `hass` access
+### 11.1 `hass` access
 
-Using `scripts_with_blueprint` from PyScript requires access to the Home Assistant `hass` object. PyScript provides this when `hass_is_global` is enabled.
-
-The framework should document this as a prerequisite.
+Using blueprint-based script discovery from PyScript requires access to Home Assistant's `hass` object. The framework should document the applicable PyScript requirement (`hass_is_global`) if this remains necessary in the implementation.
 
 ---
 
-## 10. Instance cardinality
+## 12. Instance cardinality
 
-### 10.1 `instances: one`
+### 12.1 `instances: one`
 
 Exactly one usable script instance must exist for the generated blueprint.
 
@@ -442,54 +514,39 @@ number of discovered usable instances
 
 The framework must never choose an arbitrary instance when more than one exists.
 
-The diagnostic should identify:
-
-- the configuration/blueprint name;
-- the expected cardinality;
-- the number found; and
-- discovered entity IDs when helpful.
-
-Example message:
+Example diagnostic:
 
 ```text
-PyScript configuration error: Powerwall Export requires exactly one
+Blueprint configuration error: Powerwall Export requires exactly one
 configuration script, but 2 were found:
 script.powerwall_export and script.powerwall_export_test.
 ```
 
-A cardinality error should also be logged. The application should not receive a fabricated default `CONFIG` object.
+A cardinality error should also be logged. The consumer should not receive a fabricated default `CONFIG` object.
 
-### 10.2 `instances: many`
+### 12.2 `instances: many`
 
 Zero or more usable instances are valid initially:
 
 ```python
-CONFIGS: list[RoomControlConfig]
+CONFIGS: tuple[RoomControlConfig, ...]
 ```
 
 Each discovered script is called independently and converted into one configuration model object.
 
-For the MVP, the source script entity ID should be kept as framework metadata rather than inserted into the user-defined configuration schema. Possible representations include:
+The source script entity ID may eventually be exposed as framework metadata, but should not be injected into the user's configuration schema merely to support discovery.
 
-```python
-ConfigInstance(entity_id="script.kitchen", config=...)
-```
+### 12.3 Usable-instance semantics
 
-or a private/generated metadata attribute. This remains an open API choice.
-
-### 10.3 Usable-instance semantics
-
-`script_with_blueprint()` operates on loaded script entities. The discovery adapter should additionally reject unavailable/non-callable instances if necessary and should define "usable" in one place.
-
-The rest of the framework should not know how Home Assistant represents disabled or unavailable script entities.
+The Home Assistant discovery adapter should define "usable" in one place and handle disabled/unavailable/non-callable entities appropriately. The rest of the framework should not depend on Home Assistant's representation details.
 
 ---
 
-## 11. Configuration retrieval
+## 13. Configuration retrieval
 
-Each discovered configuration script is called synchronously and its response is returned directly to PyScript.
+Each discovered configuration script is called and its response is returned directly to PyScript.
 
-PyScript supports service response data using `return_response=True`:
+Conceptually:
 
 ```python
 response = service.call(
@@ -499,13 +556,7 @@ response = service.call(
 )
 ```
 
-or through the equivalent virtual service call when the name is static.
-
-This replaces the earlier event-based idea.
-
-### 11.1 Why script responses are preferable to events
-
-A direct response avoids:
+This is preferable to an event-based return path because it avoids:
 
 - a custom event listener;
 - correlation/request IDs;
@@ -513,7 +564,7 @@ A direct response avoids:
 - timeout bookkeeping; and
 - unrelated listeners seeing configuration-return events.
 
-The generated script behaves much more like a configuration function:
+The generated script behaves like a configuration function:
 
 ```text
 PyScript ---- call ----> generated configuration script
@@ -522,11 +573,11 @@ PyScript ---- call ----> generated configuration script
 
 ---
 
-## 12. Validation philosophy
+## 14. Validation philosophy
 
-### 12.1 Home Assistant owns value validation
+### 14.1 Home Assistant owns selector-value validation
 
-Selector definitions already describe what values Home Assistant will accept and provide the GUI used to enter those values.
+Selector definitions already describe what values Home Assistant accepts and provide the GUI used to enter those values.
 
 The framework should **not** duplicate constraints such as:
 
@@ -538,39 +589,39 @@ boolean type
 object field shape
 ```
 
-in `attrs` or in a parallel Voluptuous schema.
+in `attrs` or in a parallel validator hierarchy.
 
-This is a deliberate design principle:
+Design principle:
 
-> Home Assistant validates configuration values. `pyscript-bp-config` validates its framework contract and converts already-valid values into convenient Python representations.
+> Home Assistant validates configuration values. `blueprint-config` validates its framework contract and converts already-valid values into convenient Python representations.
 
-### 12.2 What the framework still validates
+### 14.2 What the framework still validates
 
-The framework should check only things that Home Assistant cannot own for it:
+The framework should check only things Home Assistant cannot own for it:
 
 - `pyscript:` metadata syntax;
-- the required `module` and `instances` values;
+- required `module` and `instances` values;
 - generated artifact naming constraints;
 - expected configuration-instance cardinality;
-- that a service response is a mapping;
+- that a script response is a mapping;
 - that fields required by the generated model are present;
 - that recursive conversion succeeds; and
-- compatibility/version mismatches between schema, generated files, and loaded configuration.
+- compatibility/version mismatches between definition, generated files, and loaded configuration.
 
-### 12.3 Cross-field semantic rules
+### 14.3 Cross-field semantic rules
 
-Some application semantics cannot be expressed by independent selectors, for example:
+Application semantics such as:
 
 ```text
 start < end
 minimum_soc < target_soc
 ```
 
-Those should initially remain normal application checks rather than motivating a general framework validation language.
+should initially remain normal application checks rather than motivating a framework validation language.
 
 ---
 
-## 13. Runtime model with `attrs`
+## 15. Runtime model with `attrs`
 
 `attrs` is used primarily as an immutable structured container, not as a second validation system.
 
@@ -595,7 +646,7 @@ class PowerwallExportConfig:
     export: ExportConfig
 ```
 
-Application code gets natural attribute access:
+Consumer code gets natural attribute access:
 
 ```python
 CONFIG.min_soc
@@ -603,13 +654,11 @@ CONFIG.export.start
 CONFIG.export.max_power
 ```
 
-The implementation may construct these classes dynamically rather than emitting concrete Python class source.
+The implementation may construct these classes dynamically rather than emitting concrete implementation class source.
 
-### 13.1 Conversion versus validation
+### 15.1 Conversion versus validation
 
-Converters are appropriate when the desired Python representation differs from Home Assistant's selector result.
-
-For example, a Home Assistant time selector value can be converted from its string representation into:
+Converters are appropriate when the desired Python representation differs from Home Assistant's selector result. For example, a Home Assistant time selector value may be converted from a string into:
 
 ```python
 datetime.time
@@ -617,9 +666,9 @@ datetime.time
 
 This is representation conversion, not revalidation of the selector's constraints.
 
-### 13.2 Initial selector/type mapping
+### 15.2 Initial selector/type mapping
 
-The first implementation can support a conservative mapping such as:
+A conservative initial mapping can include:
 
 | Selector | Runtime/static representation |
 |---|---|
@@ -634,27 +683,25 @@ The first implementation can support a conservative mapping such as:
 | `area` | `str`; collection when `multiple` |
 | `select` | `str`, optionally `Literal[...]` for fixed choices |
 | `object` with `fields` | generated nested `attrs` model |
-| object with `multiple: true` | collection of generated nested models |
-| unknown/pass-through selector | `Any`, unless unsupported semantics require an error |
-
-The exact mapping should be derived from current Home Assistant selector behavior and covered by tests.
+| object with `multiple: true` | immutable collection of generated nested models |
+| unknown/pass-through selector | `Any`, unless strict mode eventually requires an error |
 
 ---
 
-## 14. Generated runtime module and `.pyi`
+## 16. Generated runtime module and `.pyi`
 
 Generated runtime code and its type stub should have the same basename and live together in an importable PyScript module package:
 
 ```text
-<config>/pyscript/modules/bpconfig/
+<config>/pyscript/modules/blueprint_config/generated/
     __init__.py
     powerwall_export.py
     powerwall_export.pyi
 ```
 
-This fits PyScript's normal shared-module mechanism and allows type-aware editors to treat the `.pyi` as the module's static interface while runtime Python executes the `.py` implementation.
+This fits PyScript's supported module mechanism and allows type-aware editors to treat the `.pyi` as the module's static interface while runtime Python executes the `.py` implementation.
 
-### 14.1 Singleton stub
+### 16.1 Singleton stub
 
 ```python
 import datetime as dt
@@ -675,19 +722,19 @@ class PowerwallExportConfig:
 CONFIG: PowerwallExportConfig
 ```
 
-### 14.2 Multiple-instance stub
+### 16.2 Multiple-instance stub
 
 ```python
 class RoomControlConfig:
     ...
 
 
-CONFIGS: list[RoomControlConfig]
+CONFIGS: tuple[RoomControlConfig, ...]
 ```
 
-### 14.3 Why generate the stub separately
+### 16.3 Why generate the stub separately
 
-The runtime model may be constructed dynamically with `attrs`, but a language server cannot infer the resulting attributes reliably from that runtime metaprogramming.
+The runtime model may be constructed dynamically with `attrs`, but a language server cannot reliably infer the resulting attributes from runtime metaprogramming.
 
 The generated `.pyi` gives Pylance/Pyright explicit knowledge of:
 
@@ -696,37 +743,157 @@ CONFIG.min_soc
 CONFIG.export.start
 ```
 
-and allows it to flag:
-
-```python
-CONFIG.export.does_not_exist
-```
-
-without requiring generated concrete implementation classes.
+without requiring handwritten type declarations.
 
 ---
 
-## 15. Jupyter workflow
+## 17. Build, install, and distribution model
+
+Generation is a **developer/build-time activity**, not an end-user requirement.
+
+A single generation step can produce both staged package artifacts and installed Home Assistant artifacts.
+
+### 17.1 Staged package artifacts
+
+For a source unit:
+
+```text
+pyscript/scripts/powerwall_export/
+    powerwall_export.py
+    blueprint_config.yaml
+    #generated/
+        powerwall_export.yaml
+        powerwall_export.py
+        powerwall_export.pyi
+```
+
+The staged files are convenient for:
+
+- inspection;
+- Git diffs;
+- packaging;
+- redistribution; and
+- installing on another Home Assistant system without rerunning the generator.
+
+They are not the local live copies used by PyScript/Home Assistant.
+
+### 17.2 Installed artifacts
+
+The generator also writes or installs identical content to the live locations:
+
+```text
+<config>/blueprints/script/blueprint_config/
+    powerwall_export.yaml
+
+<config>/pyscript/modules/blueprint_config/generated/
+    powerwall_export.py
+    powerwall_export.pyi
+```
+
+This deliberate duplication serves two different lifecycles:
+
+```text
+source definition
+      |
+      v
+   generator
+      |
+      +--> source-local #generated/       package/distribution copy
+      |
+      +--> blueprints/script/...          installed HA copy
+      |
+      +--> pyscript/modules/...           installed runtime/type copy
+```
+
+### 17.3 Why generate twice?
+
+For a developer's own Home Assistant system, only the installed copies are needed at runtime.
+
+For a distributable PyScript package, the source-local `#generated/` copies allow the package author to ship ready-to-install generated artifacts. A recipient does not need:
+
+- the generator;
+- a development Python environment;
+- Home Assistant's Python package available to the generator; or
+- knowledge of how the schema was transformed.
+
+The package can therefore be **build once, install many**.
+
+### 17.4 Packaging options
+
+A simple package can include:
+
+```text
+powerwall_export/
+    powerwall_export.py
+    blueprint_config.yaml        # optional for end users; useful for source distribution
+    #generated/
+        powerwall_export.yaml
+        powerwall_export.py
+        powerwall_export.pyi
+```
+
+An eventual `build` command could instead create an install-shaped distribution tree:
+
+```text
+dist/
+└── powerwall_export/
+    ├── blueprints/
+    │   └── script/
+    │       └── blueprint_config/
+    │           └── powerwall_export.yaml
+    └── pyscript/
+        ├── scripts/
+        │   └── powerwall_export/
+        │       └── powerwall_export.py
+        └── modules/
+            └── blueprint_config/
+                └── generated/
+                    ├── powerwall_export.py
+                    └── powerwall_export.pyi
+```
+
+That is an optional future packaging convenience; it is not required for the MVP.
+
+### 17.5 Version-control policy
+
+The canonical source files should be committed:
+
+```text
+powerwall_export.py
+blueprint_config.yaml
+```
+
+For projects intended for redistribution, committing `#generated/` is reasonable because those files are part of the distributable artifact and let recipients install without regeneration.
+
+For purely local projects, `#generated/` may be ignored if the developer prefers to regenerate build products.
+
+The installed copies under global Home Assistant directories need not be treated as canonical source.
+
+---
+
+## 18. Jupyter workflow
 
 The notebook and production PyScript code should use the **same import**:
 
 ```python
-from bpconfig.powerwall_export import CONFIG
+from blueprint_config.generated.powerwall_export import CONFIG
 ```
 
 or:
 
 ```python
-from bpconfig.room_control import CONFIGS
+from blueprint_config.generated.room_control import CONFIGS
 ```
 
 This avoids notebook-only typing declarations.
+
+The CLI generator can be run from a JupyterLab shell terminal or invoked as a normal Python module.
 
 When generation occurs while the same Jupyter kernel remains active, runtime code may need to be reloaded:
 
 ```python
 import importlib
-import bpconfig.powerwall_export as cfg
+import blueprint_config.generated.powerwall_export as cfg
 
 importlib.reload(cfg)
 CONFIG = cfg.CONFIG
@@ -738,59 +905,72 @@ Ruff can lint/format Python, stub, and notebook source, but the `.pyi` exists pr
 
 ---
 
-## 16. Package and repository naming
+## 19. Generator behavior
 
-Use:
+The generator should accept either a definition file or a directory tree. Each definition is self-contained.
 
-```text
-Distribution / repository: pyscript-bp-config
-Python package:            pyscript_bp_config
-CLI command:               pyscript-bp-config
-Generated import package:  bpconfig
+Examples:
+
+```bash
+blueprint-config generate \
+    /config/pyscript/scripts/powerwall_export/blueprint_config.yaml
 ```
 
-The shorter `bp` abbreviation is acceptable in this context because `pyscript` already establishes the Home Assistant/PyScript domain.
+and:
 
-The generated package name `bpconfig` is intentionally short because it appears frequently in application imports:
-
-```python
-from bpconfig.powerwall_export import CONFIG
+```bash
+blueprint-config generate /config/pyscript/scripts
 ```
 
----
-
-## 17. Generator behavior
-
-The generator should be able to accept either a schema file or a directory of schemas. Each schema is self-contained.
-
-For each schema:
+For each definition:
 
 1. Load YAML.
 2. Validate the small `pyscript:` metadata contract.
 3. Derive artifact names from `pyscript.module`.
-4. Build a complete script-blueprint structure.
-5. Pass that structure through Home Assistant's `BLUEPRINT_SCHEMA`.
-6. Preserve the validated/original `input` tree for layout/documentation analysis.
+4. Build the complete script-blueprint structure.
+5. Optionally pass it through Home Assistant's `BLUEPRINT_SCHEMA` when Home Assistant is importable.
+6. Preserve the `input` tree for layout/documentation analysis.
 7. Walk selectors only far enough to derive Python types and conversions.
-8. Generate the script sequence that returns all blueprint input values as one mapping.
-9. Write the generated blueprint.
-10. Generate the runtime adapter.
-11. Generate the matching `.pyi` stub.
-12. Optionally run format/lint checks on generated Python/stub files.
-13. Report generated paths and any selector shapes that required `Any` or were unsupported.
+8. Generate the script sequence that returns blueprint input values as one mapping.
+9. Generate the runtime adapter.
+10. Generate the matching `.pyi` stub.
+11. Write all three artifacts under the source unit's `#generated/` directory.
+12. Install/copy the blueprint into `<config>/blueprints/script/blueprint_config/` when an installation root is known.
+13. Install/copy the runtime module and stub into `<config>/pyscript/modules/blueprint_config/generated/` when an installation root is known.
+14. Optionally run format/lint checks on generated Python/stub files.
+15. Report generated and installed paths plus any selector shapes typed as `Any` or otherwise unsupported.
 
-No additional per-schema command-line options should be required.
+No additional per-definition naming arguments should be required.
+
+### 19.1 Possible commands
+
+The initial CLI may only need:
+
+```text
+blueprint-config generate <file-or-directory>
+```
+
+Later, if useful, generation and installation can be split explicitly:
+
+```text
+blueprint-config build <file-or-directory>
+blueprint-config install <package-or-directory>
+```
+
+The MVP should not add separate commands unless the workflow demonstrates a real need.
 
 ---
 
-## 18. Lifecycle and refresh
+## 20. Lifecycle and refresh
 
-The MVP can use a simple lifecycle:
+The MVP lifecycle is intentionally simple:
 
-- generation occurs during development/deployment;
-- configuration instances are created/edited through the Home Assistant UI;
-- PyScript loads configuration during module/application initialization; and
-- after configuration edits, a PyScript/script reload refreshes the configuration.
+- a developer edits `blueprint_config.yaml`;
+- the developer runs the generator;
+- the generator updates staged and installed artifacts;
+- Home Assistant users create/edit configuration instances through the blueprint GUI;
+- PyScript loads configuration during module/consumer initialization; and
+- after configuration edits, an appropriate script/PyScript reload refreshes the configuration.
 
 Automatic configuration-change watching can be added later if it provides meaningful ergonomic benefit.
 
@@ -798,16 +978,16 @@ Configuration model objects should be replaced on refresh rather than mutated.
 
 ---
 
-## 19. Error reporting
+## 21. Error reporting
 
 The framework should make configuration failures conspicuous and actionable.
 
-Errors should be both logged and, for conditions that require user action, surfaced through a Home Assistant notification or repair-style mechanism where practical.
+Errors should be both logged and, for conditions requiring user action, surfaced through a Home Assistant notification or repair-style mechanism where practical.
 
 Initial errors include:
 
 - malformed framework metadata;
-- generated blueprint rejected by Home Assistant's blueprint schema;
+- generated blueprint rejected by Home Assistant;
 - zero instances when `instances: one`;
 - multiple instances when `instances: one`;
 - configuration script unavailable or not callable;
@@ -815,11 +995,11 @@ Initial errors include:
 - stale generated model versus returned structure; and
 - conversion failure.
 
-Messages should use the human-readable blueprint name, while internal lookup continues to use the stable module-derived blueprint path.
+Messages should use the human-readable blueprint name while internal lookup continues to use the stable module-derived blueprint path.
 
 ---
 
-## 20. Trust and security boundary
+## 22. Trust and security boundary
 
 The generated script blueprint is framework-owned infrastructure. Its sequence should be generated and should simply expose blueprint inputs as a script response.
 
@@ -831,33 +1011,45 @@ Secrets should remain outside this mechanism. A blueprint-created script is conv
 
 ---
 
-## 21. Compatibility boundary
+## 23. Compatibility boundary
 
-The design intentionally distinguishes stable-ish public behavior from Home Assistant Python implementation details.
+The design intentionally distinguishes application-facing behavior from Home Assistant Python implementation details.
 
-The most sensitive dependency is runtime blueprint-instance discovery through:
+Sensitive dependencies include runtime blueprint-instance discovery through helpers such as:
 
 ```python
 homeassistant.components.script.scripts_with_blueprint
 ```
 
-That usage should be isolated in one adapter module.
+Those calls should be isolated in one runtime adapter.
 
-Similarly, direct use of:
+Optional exact blueprint validation through:
 
 ```python
 homeassistant.components.blueprint.schemas.BLUEPRINT_SCHEMA
 ```
 
-and selector internals should remain confined to the generator/schema-analysis layer.
+should likewise be isolated in the generator and must not become a mandatory dependency for package consumers.
 
-If Home Assistant changes those Python APIs, the application-facing API (`CONFIG`, `CONFIGS`, generated models) should not need to change.
+If Home Assistant changes these APIs, the consumer-facing API (`CONFIG`, `CONFIGS`, generated models) should remain unchanged where possible.
 
 ---
 
-## 22. End-to-end example
+## 24. End-to-end example
 
-### 22.1 Schema
+### 24.1 Source
+
+```text
+/config/pyscript/scripts/room_control/
+    room_control.py
+    blueprint_config.yaml
+    #generated/
+        room_control.yaml
+        room_control.py
+        room_control.pyi
+```
+
+Definition:
 
 ```yaml
 pyscript:
@@ -885,58 +1077,61 @@ input:
         unit_of_measurement: °F
 ```
 
-### 22.2 Generation
+### 24.2 Generation and installation
 
 ```text
-room_control.yaml
+blueprint_config.yaml
       |
-      +--> blueprints/script/pyscript/room_control.yaml
-      +--> pyscript/modules/bpconfig/room_control.py
-      +--> pyscript/modules/bpconfig/room_control.pyi
+      +--> scripts/room_control/#generated/room_control.yaml
+      +--> scripts/room_control/#generated/room_control.py
+      +--> scripts/room_control/#generated/room_control.pyi
+      |
+      +--> blueprints/script/blueprint_config/room_control.yaml
+      +--> pyscript/modules/blueprint_config/generated/room_control.py
+      +--> pyscript/modules/blueprint_config/generated/room_control.pyi
 ```
 
-### 22.3 Home Assistant UI
+### 24.3 Home Assistant UI
 
 The user creates any number of scripts from the generated **Room Control** blueprint. Each script represents one room and is edited using Home Assistant's normal entity and number selectors.
 
-### 22.4 PyScript runtime
+### 24.4 PyScript runtime
 
 ```python
-from bpconfig.room_control import CONFIGS
+from blueprint_config.generated.room_control import CONFIGS
 
 for config in CONFIGS:
     temperature = state.get(config.temperature_sensor)
     control_room(temperature, config.setpoint)
 ```
 
-### 22.5 Static typing
+### 24.5 Distribution
 
-The generated stub tells Pylance/Pyright that:
-
-```python
-CONFIGS: list[RoomControlConfig]
-```
-
-and that each item has typed `temperature_sensor` and `setpoint` attributes.
+A package author can ship the source unit together with `#generated/`. The receiving user or installer copies the staged generated files to the standard blueprint and module destinations. No schema regeneration is required on the recipient system.
 
 ---
 
-## 23. MVP implementation plan
+## 25. MVP implementation plan
 
-1. Implement schema metadata parsing for `module` and `instances`.
-2. Build a complete Home Assistant script blueprint from the source schema.
-3. Validate it with `BLUEPRINT_SCHEMA`.
-4. Generate a script response mapping from every non-section input.
-5. Implement discovery through a small `scripts_with_blueprint()` adapter.
-6. Implement `instances: one` and `instances: many` cardinality behavior.
-7. Call configuration scripts with `return_response=True`.
-8. Implement basic selector/type analysis.
-9. Implement frozen dynamic `attrs` models.
-10. Generate side-by-side `.pyi` stubs.
-11. Add Home Assistant diagnostics for singleton-cardinality failures.
-12. Verify the same generated import from both Jupyter and a normal PyScript file.
+1. Adopt `blueprint-config` / `blueprint_config` naming throughout.
+2. Implement metadata parsing for `module` and `instances`.
+3. Implement discovery of `blueprint_config.yaml` from a file or recursive directory scan.
+4. Build the complete Home Assistant script blueprint from the source definition.
+5. Generate a script response mapping from every non-section input.
+6. Implement basic selector/type analysis without duplicating selector validation.
+7. Implement frozen dynamic `attrs` models.
+8. Generate side-by-side runtime `.py` and `.pyi` files.
+9. Write staged copies under the source unit's `#generated/` directory.
+10. Install identical runtime/stub copies under `pyscript/modules/blueprint_config/generated/`.
+11. Install the generated blueprint under `blueprints/script/blueprint_config/`.
+12. Implement discovery through a small `scripts_with_blueprint()` adapter.
+13. Implement `instances: one` and `instances: many` cardinality behavior.
+14. Call configuration scripts with `return_response=True`.
+15. Add Home Assistant diagnostics for singleton-cardinality failures.
+16. Verify the same generated import from both Jupyter and a normal PyScript consumer.
+17. Verify that a package copied from `#generated/` can be installed on a second system without running the generator.
 
-### 23.1 Suggested first test schema
+### 25.1 Suggested first test definition
 
 The first proof of concept should include:
 
@@ -945,15 +1140,15 @@ The first proof of concept should include:
 - one entity selector;
 - one time selector;
 - one object selector with two or three fields; and
-- both `instances: one` and `instances: many` test variants.
+- both `instances: one` and `instances: many` variants.
 
 Test singleton discovery with zero, one, and two configuration scripts before expanding selector coverage.
 
 ---
 
-## 24. Open design questions
+## 26. Open design questions
 
-### 24.1 Identity for multiple instances
+### 26.1 Identity for multiple instances
 
 Should the source script entity ID be exposed as:
 
@@ -969,11 +1164,7 @@ ConfigInstance(entity_id=..., config=...)
 
 or omitted unless explicitly requested?
 
-### 24.2 Collection type
-
-Should `CONFIGS` be a `list[...]` to match the stated API, or a `tuple[...]` to make the top-level collection immutable as well?
-
-### 24.3 Optional inputs
+### 26.2 Optional inputs
 
 How should an omitted optional input appear in the generated model and stub? Likely approaches include:
 
@@ -981,28 +1172,34 @@ How should an omitted optional input appear in the generated model and stub? Lik
 str | None
 ```
 
-or omission only when Home Assistant's script expansion makes that possible. This should be determined from actual blueprint behavior rather than guessed.
+or omission only when Home Assistant's script expansion makes that possible. This should be determined from actual blueprint behavior.
 
-### 24.4 Unknown selectors
+### 26.3 Unknown selectors
 
 When Home Assistant adds a selector the generator does not yet understand, should generation:
 
 - pass it through and type it as `Any`; or
 - fail with an explicit unsupported-selector error?
 
-A pass-through `Any` fallback would preserve forward compatibility, while a strict mode could be offered for users who prefer complete typing.
+A pass-through `Any` fallback favors forward compatibility; a future strict mode could require complete typing.
 
-### 24.5 Schema/generated-artifact versioning
+### 26.4 Schema/generated-artifact versioning
 
 Should generated artifacts carry a small framework/schema version marker so stale runtime files can be detected deterministically?
 
-### 24.6 Refresh semantics
+### 26.5 Refresh semantics
 
 Is explicit reload-after-edit sufficient, or should the runtime eventually react automatically when relevant script configurations are reloaded?
 
+### 26.6 Installation metadata
+
+Should `#generated/` eventually contain a small manifest describing each staged file's install destination, or is the filename/module convention sufficient?
+
+A manifest could make third-party packaging/install tooling simpler without changing runtime behavior.
+
 ---
 
-## 25. Design principles
+## 27. Design principles
 
 The design should remain guided by these principles:
 
@@ -1016,35 +1213,62 @@ The design should remain guided by these principles:
 8. **Keep runtime objects immutable and pleasant to use.**
 9. **Generate typing information rather than requiring handwritten stubs.**
 10. **Keep Home Assistant internal API dependencies behind narrow adapters.**
-11. **Make Jupyter and production imports identical.**
-12. **Prefer a small framework over a comprehensive duplicate of Home Assistant.**
+11. **Keep generation out of the Home Assistant runtime path.**
+12. **Let source organization and PyScript import organization be different when PyScript's loader requires it.**
+13. **Treat `#generated/` as package staging, not as the live import path.**
+14. **Build once and allow distributed packages to install without regeneration.**
+15. **Make Jupyter and production imports identical.**
+16. **Prefer a small framework over a comprehensive duplicate of Home Assistant.**
 
 ---
 
-## 26. Current platform references
+## 28. Current platform references
 
-The design was checked against the following current sources on 2026-08-12:
+The design has been discussed against these Home Assistant/PyScript facilities:
 
-- [Home Assistant blueprint schema](https://www.home-assistant.io/docs/blueprint/schema/) — blueprint metadata, inputs, descriptions, and input sections.
-- [Home Assistant selectors](https://www.home-assistant.io/docs/blueprint/selectors/) — selector behavior, including structured object selectors.
-- [Home Assistant script syntax](https://www.home-assistant.io/docs/scripts/) — returning mapping response data with `stop` / `response_variable`.
-- [Home Assistant Core blueprint schemas](https://github.com/home-assistant/core/blob/dev/homeassistant/components/blueprint/schemas.py) — `BLUEPRINT_SCHEMA`, input schemas, selector validation, and unique input validation.
-- [Home Assistant Core script component](https://github.com/home-assistant/core/blob/dev/homeassistant/components/script/__init__.py) — `scripts_with_blueprint()`, `blueprint_in_script()`, and script response propagation.
-- [Home Assistant Core selector helpers](https://github.com/home-assistant/core/blob/dev/homeassistant/helpers/selector.py) — selector parsing/configuration classes used for type analysis.
-- [PyScript reference](https://hacs-pyscript.readthedocs.io/en/latest/reference.html) — service response calls, `hass_is_global`, shared modules, and Jupyter/global-context behavior.
+- Home Assistant blueprint schema and native `input:` metadata;
+- Home Assistant selectors, including object selectors;
+- Home Assistant script response data (`response_variable` / service responses);
+- Home Assistant Core blueprint/script helpers such as `BLUEPRINT_SCHEMA`, `scripts_with_blueprint()`, and `blueprint_in_script()`;
+- PyScript `hass_is_global` access;
+- PyScript `modules/` for importable shared modules;
+- PyScript recursive autoload behavior under `scripts/`; and
+- PyScript's ignored `#` file/directory convention.
+
+Exact Home Assistant/PyScript internal APIs should be verified against the target version during implementation and isolated behind framework adapters.
 
 ---
 
-## 27. Recommended next step
+## 29. Recommended next step
 
-Build the smallest vertical proof of concept rather than a broad selector framework:
+Build the smallest vertical proof of concept around the finalized filesystem/build model:
 
 ```text
-one schema YAML
-    -> one validated generated script blueprint
-    -> one generated runtime module
-    -> one generated .pyi
-    -> CONFIG available in Jupyter and normal PyScript
+scripts/powerwall_export/
+    powerwall_export.py
+    blueprint_config.yaml
+    #generated/
+        powerwall_export.yaml
+        powerwall_export.py
+        powerwall_export.pyi
+
+            generation/install
+                    |
+                    +--> blueprints/script/blueprint_config/powerwall_export.yaml
+                    +--> pyscript/modules/blueprint_config/generated/powerwall_export.py
+                    +--> pyscript/modules/blueprint_config/generated/powerwall_export.pyi
 ```
 
-Then validate `instances: one` error handling and `instances: many`, followed by object-selector nesting. Once that works cleanly, additional selector typing should be mostly incremental.
+Then prove:
+
+```text
+one definition
+    -> generated blueprint
+    -> one GUI-created script instance
+    -> discovered by blueprint identity
+    -> script response
+    -> attrs CONFIG
+    -> Pylance-visible CONFIG fields
+```
+
+After that works, test `instances: one` error handling, `instances: many`, object-selector nesting, and installation of the staged `#generated/` files onto a second system without regeneration.
