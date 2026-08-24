@@ -1,0 +1,70 @@
+blueprint:
+  name: Pyscript bathroom lights/fan control
+  description: |
+    This blueprint controls the bathroom fan, and a switched vanity light and a LIFX fan light. It presumes:
+
+    - The fan is controlled by an Inovelli humitidy sensing switch (VZW35-SN).
+    - The vanity light is controlled by an Inovelli motion sensing switch (VZM32-SN).
+    - The fan light is a LIFX color bulb (I'm using the PAM38).
+  domain: script
+
+  input:
+    vanity_light:
+      name: Vanity Light
+      description: The vanity light exposed as a light entity.
+      selector:
+        entity:
+          domain: light
+    fan_light:
+      name: Fan Light
+      description: The fan light exposed as a light entity. It is assumed to be a LIFX color bulb.
+      selector:
+        entity:
+          domain: light
+    bathroom_occupancy:
+      name: Bathroom Occupancy
+      description: The occupancy sensor exposed as a binary_sensor entity.
+      selector:
+        entity:
+          domain: binary_sensor
+    day_scene:
+      name: Day Scene
+      description: The scene to set the fan light to during the day.
+      selector:
+        entity:
+          domain: scene
+    night_scene:
+      name: Night Scene
+      description: The scene to set the fan light to during the night.
+      selector:
+        entity:
+          domain: scene
+    day_start_time:
+      name: Day Start Time
+      description: The time of day to start the day scene.
+      default: "07:00:00"
+      selector:
+        time:
+    day_end_time:
+      name: Day End Time
+      description: The time of day to end the day scene.
+      default: "20:00:00"
+      selector:
+        time:
+
+
+sequence:
+  - variables:
+      result:
+        fan_light: !input fan_light
+        vanity_light: !input vanity_light
+        bathroom_occupancy: !input bathroom_occupancy
+        day_scene: !input day_scene
+        night_scene: !input night_scene
+        day_start_time: !input day_start_time
+        day_end_time: !input day_end_time
+
+  - stop: Return blueprint configuration
+    response_variable: result
+
+mode: single

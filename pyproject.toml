@@ -1,15 +1,13 @@
 [project]
 name = "blueprint_config"
 version = "0.1.0"
-description = "Add your description here"
+description = "Tool to generate HA blueprints from Python code"
 readme = "README.md"
 authors = [
     { name = "David Walker", email = "dbwalker0min@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = [
-    "attrs>=26.1.0",
-]
+dependencies = []
 
 [project.scripts]
 blueprint-config = "blueprint_config:main"
@@ -17,3 +15,22 @@ blueprint-config = "blueprint_config:main"
 [build-system]
 requires = ["uv_build>=0.11.16,<0.12.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "blueprint-config",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.4",
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.uv.workspace]
+members = [
+    ".",
+]
+
+[tool.uv.sources]
+blueprint-config = { workspace = true, editable = true }
