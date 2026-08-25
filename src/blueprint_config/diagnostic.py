@@ -3,6 +3,8 @@ from __future__ import annotations
 from enum import IntEnum, auto
 from typing import Any, NamedTuple
 
+from .types import MISSING
+
 
 class DiagnosticSeverity(IntEnum):
     ERROR = auto()
@@ -29,7 +31,7 @@ class Diagnostics:
         if field_name:
             msg = f"From field {field_name!r}: {msg}"
         if severity <= self.diagnostic_level:
-            self._diagnostics.append(DiagnosticMessage(message=msg, severity=severity)) 
+            self._diagnostics.append(DiagnosticMessage(message=msg, severity=severity))
 
     def error(self, msg: str, field_name: str | None = None):
         """Post an error message to the diagnostics list."""
@@ -46,22 +48,29 @@ class Diagnostics:
     def set_severity_level(self, severity: DiagnosticSeverity):
         self.diagnostic_level = severity
 
-
     @property
     def diagnostics(self) -> list[DiagnosticMessage]:
         return self._diagnostics
 
     def type_check_error(
-        self, field_name: str, parameter_name: str, expected_type: type, value: Any
-    ):
+        self,
+        field_name: str,
+        parameter_name: str,
+        expected_type: type,
+        value: Any,
+        allow_missing: bool = False,
+    ) -> bool:
+        error_detected = False
+        if allow_missing and value is MISSING:
+            return False
+
         value_type = type(value)
-        if value is not None and expected_type is not value_type:
+        if expected_type is not value_type:
+            error_detected = True
             msg = (
                 f"Type check failed for parameter {parameter_name!r} "
                 f"of field {field_name!r}: expected type {expected_type.__name__}, "
                 f"got type {value_type.__name__}"
             )
-            print(msg)
             self.error(msg, field_name)
-            
-
+        return error_detected

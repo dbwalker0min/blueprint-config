@@ -5,7 +5,7 @@ from blueprint_config.diagnostic import (
 )
 
 
-def test_simple():
+def test_button_diagnostics_simple():
     diagnostics = Diagnostics(diagnostic_level=DiagnosticSeverity.WARNING)
 
     diagnostics.error("This is an error message", "field1")

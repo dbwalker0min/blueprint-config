@@ -1,38 +1,18 @@
 from __future__ import annotations
-from enum import Enum, auto
-import inspect
 
 import datetime as dt
+import inspect
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Self, Literal
+from enum import Enum, auto
+from typing import Any, ClassVar, Self
 
 from .diagnostic import Diagnostics
+from .types import MISSING, _Missing
 
-
-class _Missing:
-    """This is a sentinel value to indicate that a field has no default value"""
-    __slots__ = ()
-
-    def __repr__(self):
-        return "MISSING"
 
 class BlueprintContext(Enum):
     INPUT = auto()
     OBJECT_FIELDS = auto()
-    
-MISSING = _Missing()
-
-
-def get_class_base_names(cls, bases: list[str] | None = None) -> list[str]:
-    """For a class, give a list of other classes it's subclassed from"""
-    if type(cls) is not type:
-        raise ValueError(f"Input must be a class, is {type(cls).__name__!r}")
-    bases = bases or []
-    sub_base = cls.__base__
-    if sub_base is not object:
-        bases.append(sub_base.__name__)
-        get_class_base_names(sub_base, bases)
-    return bases
 
 
 class ConfigObject:
@@ -116,8 +96,10 @@ class ConfigObject:
 
         return result
 
+
 class BlueprintItem(ABC):
     """This is a base class for items that can be part of a blueprint"""
+
     @abstractmethod
     def validate(self, field_name: str, diag: Diagnostics):
         """Verify the blueprint item and post any diagnostics to diag"""
@@ -129,31 +111,34 @@ class BlueprintItem(ABC):
 
 class Field(BlueprintItem, ABC):
     """This is a base class for fields in a configuration object. It provides common functionality for all fields."""
+
     def __init__(
         self,
         *,
-        name: str | None = None,
+        name: str = "",
         default: Any = MISSING,
         required: bool = False,
         description: str = "",
-        section: InputSection | None = None,
+        section: InputSection | _Missing = MISSING,
+        allow_none: bool = False,
     ):
         super().__init__()
-        self.name = name.strip() if isinstance(name, str) else name
+        self.name = name = name.strip() if isinstance(name, str) else name
         self.default = default
         self.required = required
         self.description = (
-            inspect.cleandoc(description) 
-            if isinstance(description, str) 
+            inspect.cleandoc(description)
+            if isinstance(description, str)
             else description
         )
-        self.section = section  
+        self.section = section
+        self.allow_none = allow_none
 
     def validate(self, field_name: str, diag: Diagnostics):
         """Validate the provided arguments to the field"""
-        for p, t in GENERIC_FIELD_VALIDATION:
+        for p, t, a_none in GENERIC_FIELD_VALIDATION:
             value = getattr(self, p)
-            diag.type_check_error(field_name, p, t, value)
+            diag.type_check_error(field_name, p, t, value, a_none)
 
     def __set_name__(self, owner, name: str):
         """This is called when the field is assigned to a class attribute"""
@@ -189,13 +174,15 @@ class Field(BlueprintItem, ABC):
 
             if self.default is not MISSING:
                 result["default"] = self.default
-        else:
+        elif context == BlueprintContext.OBJECT_FIELDS:
             # Context is for Objects
             if self.name:
                 result["label"] = self.name
 
-            if self.required:
+            if self.required and self.required:
                 result["required"] = True
+        else:
+            raise ValueError(f"Unknown context: {context}")
 
         # get the selector from the given subclass
         result["selector"] = self.selector()
@@ -204,16 +191,21 @@ class Field(BlueprintItem, ABC):
 
 
 class Boolean(Field):
-    def __init__(
-        self,
-        default: bool | None | _Missing = MISSING,
-        **kwargs
-    ):
+    def __init__(self, default: bool | None | _Missing = MISSING, **kwargs):
         super().__init__(default=default, **kwargs)
 
-    def convert(self, value):
-        if value is None or isinstance(value, bool):
+    def convert(self, value: bool | None):
+        if isinstance(value, bool):
             return value
+
+        if value is None:
+            if self.default is not MISSING:
+                return self.default
+
+            if self.allow_none:
+                return None
+
+            raise ValueError("Boolean field has no default and no value was provided")
         raise TypeError(f"Value of Boolean is not boolean or None {value!r}")
 
     def selector(self) -> dict:
@@ -223,9 +215,7 @@ class Boolean(Field):
         super().validate(field_name, diag)
 
         # just check the type of the default value.
-        value = self.default
-        if value is not MISSING and value is not None:
-            diag.type_check_error(field_name, "default", bool, value)
+        diag.type_check_error(field_name, "default", bool, self.default, True)
 
 
 class Time(Field):
@@ -243,17 +233,18 @@ class Time(Field):
 
         # check the default type
         d = self.default
-        if d is not None:
+        if d is not MISSING and d is not None:
             diag.type_check_error(field_name, "default", dt.time, d)
+
 
 class Object(Field):
     def __init__(
         self,
-        object_type: type[ConfigObject],
+        object_type: type[ConfigObject] | _Missing = MISSING,
         *,
         multiple: bool = False,
-        label_field: str | None = None,
-        description_field: str | None = None,
+        label_field: str | _Missing = MISSING,
+        description_field: str | _Missing = MISSING,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -263,42 +254,49 @@ class Object(Field):
         self.description_field = description_field
 
     def validate(self, field_name: str, diag: Diagnostics):
-        # Check the basic types
-        for p, t in OBJECT_FIELD_TYPE_VALIDATION:
-            value = getattr(self, p)
-            # all of these properties are optional and can be None
-            diag.type_check_error(field_name, p, t, value)
+        super().validate(field_name, diag)
 
-        # Check that object type is a class derived from ConfigObject
+        # Check multiple is a boolean
+        diag.type_check_error(field_name, "multiple", bool, self.multiple)
+
+        # Check `object_type` is a class derived from `ConfigObject`
         ot = self.object_type
-        # Check to make sure it's a number
-        if ot is not None:
-            if type(ot) is not type:
-                m = (
-                    f"'object_type' must be an object. Is of type {type(ot).__name__!r}"
-                )
-                diag.error(m, field_name)
-            elif not issubclass(ot, ConfigObject):
-                class_heir = get_class_base_names(ot)
+        if isinstance(ot, type):
+            if not issubclass(ot, ConfigObject):
+                class_heir: list[str] = [
+                    f"'{cls.__name__}'" for cls in ot.__mro__[1:] if cls is not object
+                ]
                 if len(class_heir) == 0:
                     class_heir = ["nothing"]
-                heir_str = "->".join(map(repr, class_heir))
+                heir_str = "->".join(class_heir)
                 m = (
                     "'object_type' must be a class derived from 'ConfigObject'. "
-                    f"Class {type(self).__name__!r} is subclassed from {heir_str}"
+                    f"Class {type(ot).__name__!r} is derived from {heir_str}"
                 )
                 diag.error(m, field_name)
-            else:
-                # check that the label and description fields are valid field names
-                field_names = list(ot.fields().keys())
-                for p in ["label_field", "description_field"]:
-                    value = getattr(self, p)
-                    if value not in field_names:
-                        m = (
-                            f"parameter {p!r} ({value!r}) does not reference "
-                            f"a valid field in {ot.__name__!r}."
-                        )
-                        diag.error(m, field_name)
+                return
+
+            # check that the label and description fields are valid field names
+            field_names = ot.fields()
+            for p in ["label_field", "description_field"]:
+                value = getattr(self, p)
+                if (
+                    diag.type_check_error(field_name, p, str, value, allow_missing=True)
+                    and value is not MISSING
+                    and value not in field_names
+                ):
+                    m = (
+                        f"parameter {p!r} ({value!r}) does not reference "
+                        f"a valid field in {ot.__name__!r}."
+                    )
+                    diag.error(m, field_name)
+            return
+
+        diag.error(
+            f"'object_type' must be a class derived from 'ConfigObject'. "
+            f"Is of type {type(ot).__name__!r}",
+            field_name,
+        )
 
     def convert(self, value):
         if value is None:
@@ -311,16 +309,18 @@ class Object(Field):
 
     def selector(self) -> dict:
         obj = {
-            "fields": self.object_type.blueprint_fragment(BlueprintContext.OBJECT_FIELDS)
-            }
+            "fields": self.object_type.blueprint_fragment(
+                BlueprintContext.OBJECT_FIELDS
+            )
+        }
 
         if self.multiple:
             obj["multiple"] = True
 
-        if self.label_field is not None:
+        if self.label_field is not MISSING:
             obj["label_field"] = self.label_field
 
-        if self.description_field is not None:
+        if self.description_field is not MISSING:
             obj["description_field"] = self.description_field
 
         return {"object": obj}
@@ -368,15 +368,11 @@ class InputSection:
 
 
 # This is for validating the generic field
+# Fields are parameter name, expected type, and whether None is allowed
 GENERIC_FIELD_VALIDATION = [
-    ("name", str),
-    ("required", bool),
-    ("description", str),
-    ("section", InputSection),
-]
-
-OBJECT_FIELD_TYPE_VALIDATION = [
-    ("label_field", str),
-    ("description_field", str),
-    ("multiple", bool),
+    ("name", str, False),
+    ("required", bool, False),
+    ("description", str, False),
+    ("section", InputSection, True),
+    ("allow_none", bool, False),
 ]
