@@ -70,7 +70,7 @@ class FieldItem(ABC):
     ): ...
 
     @abstractmethod
-    def convert(self, value: Any) -> Any: ...
+    def convert(self, value: Any, diag: Diagnostics | None) -> Status: ...
 
     @abstractmethod
     def selector(self) -> dict[str, Any]: ...
@@ -425,7 +425,8 @@ class Object(Field):
                     field_name,
                 )
 
-    def convert(self, value):
+    def convert(self, value: Any):
+        # This would occur if there were an error during parsing
         if not (isinstance(self.object_class, type) and issubclass(self.object_class, EmbeddedObject)):
             raise TypeError(
                 f"'object_class' must be a class derived from 'EmbeddedObject'. "
@@ -442,7 +443,10 @@ class Object(Field):
         return self.object_class.from_dict(value)
 
     def selector(self) -> dict:
-        obj = {"fields": self.object_class.blueprint_fragment()}
+        if not (isinstance(self.object_class, type) and issubclass(self.object_class, EmbeddedObject)):
+            return {}
+
+        obj: dict[str, Any] = {"fields": self.object_class.blueprint_fragment()}
 
         if self.multiple:
             obj["multiple"] = True
