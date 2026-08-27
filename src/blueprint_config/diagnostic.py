@@ -94,8 +94,7 @@ class Diagnostics:
         allow_missing: bool = False,
     ) -> Status:
         """Post a type check error to the diagnostics list if the type of the value
-        does not match the expected type. This is only called on classes. There's
-        no concept of paths.
+        does not match the expected type. This is only called on classes.
         """
         error_detected = False
         if allow_missing and value is MISSING:

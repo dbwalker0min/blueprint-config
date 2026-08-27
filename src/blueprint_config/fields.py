@@ -7,7 +7,7 @@ from collections.abc import Collection
 from typing import Any, ClassVar, Self
 
 from .diagnostic import DiagnosticMessage, Diagnostics
-from .types import MISSING, _Missing, Status
+from .types import MISSING, Status, _Missing
 
 
 class FieldItem(ABC):
@@ -25,6 +25,12 @@ class FieldItem(ABC):
         allow_none: bool | _Missing = MISSING,
         **kwargs,
     ):
+        # The arguments provided are the common parameters for selectors that contain
+        # entities for input sections and object selectors.
+        # The valid properties and their function is determined by the object that
+        # instantiates them. This keeps me from having to specify and handle all possible
+        # properties in the specific selectors.
+        #
         # Do this first before anyone adds more variables
         # This keeps track of *all* variables that have been explicitly specified
         specified_values: set[str] = {
@@ -165,10 +171,6 @@ class ConfigObject(ABC):
         return result
 
     @classmethod
-    @abstractmethod
-    def render_field(cls, field: FieldItem) -> dict[str, Any]: ...
-
-    @classmethod
     def validate(cls, diagnostics: Diagnostics):
         """Validate the configuration object and post any diagnostics to the provided diagnostics object"""
         if len(cls.fields()) == 0:
@@ -176,15 +178,22 @@ class ConfigObject(ABC):
                 f"No fields defined in the configuration object {cls.__name__!r}."
             )
 
+    @classmethod
+    @abstractmethod
+    def render_field(cls, field: FieldItem) -> dict[str, Any]: ...
+
 
 class BlueprintObject(ConfigObject, register=False):
     VALID_FIELD_PROPERTIES: frozenset[str] = frozenset(
         ["name", "description", "default", "allow_none", "section"]
     )
 
-    # Name and path of the blueprint to write
+    # Blueprint metadata and path of blueprint to write
     blueprint_name: str
     blueprint_path: str
+    blueprint_description: str = ''
+    blueprint_author: str = ''
+    blueprint_minimum_version: str = ''
 
     @classmethod
     def validate(cls, diagnostics: Diagnostics):
@@ -204,6 +213,31 @@ class BlueprintObject(ConfigObject, register=False):
 
         if field.default is not MISSING:
             result["default"] = field.default
+
+        result["selector"] = field.selector()
+        return result
+
+
+class EmbeddedObject(ConfigObject, register=False):
+    VALID_FIELD_PROPERTIES = frozenset(
+        ["name", "description", "default", "allow_none", "required"]
+    )
+    @classmethod
+    def validate(cls, diagnostics: Diagnostics):
+        """Validate the configuration object and post any diagnostics to the provided diagnostics object"""
+        # TODO: Add specific validation for embedded objects
+        super().validate(diagnostics)
+
+    @classmethod
+    def render_field(cls, field: FieldItem) -> dict[str, Any]:
+        """Render a blueprint fragment for the given field as an object selector"""
+        result = {}
+
+        if field.name:
+            result["label"] = field.name
+
+        if field.required:
+            result["required"] = field.required
 
         result["selector"] = field.selector()
         return result
@@ -320,7 +354,7 @@ class Object(Field):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.object_type = object_type
+        self.object_class = object_type
         self.multiple = False if multiple is MISSING else multiple
         self.label_field = label_field
         self.description_field = description_field
@@ -334,7 +368,7 @@ class Object(Field):
         diag.type_check_error(field_name, "multiple", bool, self.multiple)
 
         # Check `object_type` is a class derived from `ConfigObject`
-        ot = self.object_type
+        ot = self.object_class
         if ot is MISSING:
             diag.error(
                 "'object_type' must be a class derived from 'ConfigObject'. Is missing",
@@ -365,7 +399,8 @@ class Object(Field):
                 if (
                     diag.type_check_error(
                         field_name, p, str, value, allow_missing=False
-                    ) == Status.VALID
+                    )
+                    == Status.VALID
                     and value not in field_names
                 ):
                     m = (
@@ -380,23 +415,34 @@ class Object(Field):
             f"Is of type {type(ot).__name__!r}",
             field_name,
         )
+        # Finally, I need to make sure that the default (if specified) can be loaded
+        if self.default is not MISSING:
+            try:
+                self.convert(self.default)
+            except Exception as e:
+                diag.error(
+                    f"Failed to load default value for field '{field_name}': {e}",
+                    field_name,
+                )
 
     def convert(self, value):
-        if value is None:
+        if not (isinstance(self.object_class, type) and issubclass(self.object_class, EmbeddedObject)):
+            raise TypeError(
+                f"'object_class' must be a class derived from 'EmbeddedObject'. "
+                f"Is of type {type(self.object_class).__name__!r}"
+            )
+
+        if value is None and self.allow_none:
             return [] if self.multiple else None
 
-        if self.multiple:
-            return [self.object_type.from_dict(item) for item in value]
 
-        return self.object_type.from_dict(value)
+        if self.multiple:
+            return [self.object_class.from_dict(item) for item in value]
+
+        return self.object_class.from_dict(value)
 
     def selector(self) -> dict:
-        return
-        obj = {
-            "fields": self.object_type.blueprint_fragment(
-                BlueprintContext.OBJECT_FIELDS
-            )
-        }
+        obj = {"fields": self.object_class.blueprint_fragment()}
 
         if self.multiple:
             obj["multiple"] = True
