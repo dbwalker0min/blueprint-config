@@ -13,6 +13,11 @@ from .types import MISSING, ParamTypeChk, Status, _Missing
 class FieldItem(ABC):
     """This is a base class for items that can be part of a blueprint or embedded object.
     It represents the common attribues for the blueprint schema"""
+    FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset([
+        ParamTypeChk("name", str, ""),
+        ParamTypeChk("description", str, ""),
+        ParamTypeChk("allow_none", bool, False),
+    ])
 
     def __init__(
         self,
@@ -313,6 +318,10 @@ class EmbeddedObject(ConfigObject, register=False):
 
 
 class Boolean(FieldItem):
+    FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset([
+        ParamTypeChk("default", bool, False),
+    ])
+
     def convert(self, value: bool | None, diag: Diagnostics | None = None):
         if isinstance(value, bool):
             return value
