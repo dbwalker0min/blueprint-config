@@ -1,4 +1,5 @@
 from enum import Enum, auto
+from typing import Any, NamedTuple
 
 
 class _Missing:
@@ -17,3 +18,8 @@ class Status(Enum):
 
 
 MISSING = _Missing()
+
+class ParamTypeChk(NamedTuple):
+    param: str
+    exp_type: type
+    default: Any

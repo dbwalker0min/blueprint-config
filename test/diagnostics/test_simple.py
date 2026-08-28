@@ -72,7 +72,7 @@ def test_type_check_error():
         severity=DiagnosticSeverity.ERROR,
         message="From field 'field1': Type check failed for parameter 'param1' of field 'field1': expected type int, got type str",
     )
-
+    assert diagnostics.has_error is True
 
 def test_type_check_okay():
     diagnostics = Diagnostics(diagnostic_level=DiagnosticSeverity.DEBUG)
@@ -87,6 +87,7 @@ def test_type_check_okay():
     diag_list = diagnostics.diagnostics
     assert result == Status.VALID
     assert len(diag_list) == 0
+    assert diagnostics.has_error is False
 
 
 def test_diagnostic_no_field_name():
@@ -100,6 +101,7 @@ def test_diagnostic_no_field_name():
     assert diag_list[0] == DiagnosticMessage(
         severity=DiagnosticSeverity.ERROR, message="This is an error message"
     )
+    assert diagnostics.has_error is True
 
 
 def test_diagnostics_with_path():
@@ -133,3 +135,4 @@ def test_diagnostics_with_path():
             ),
         ]
     )
+    assert d0.has_error is True

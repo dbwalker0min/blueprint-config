@@ -27,48 +27,51 @@ class Diagnostics:
         self._diagnostics: list[DiagnosticMessage] = diag_in or []
         self.diagnostic_level = diagnostic_level
         self.path = path
+        self._has_error = False
 
     def _format_path(self) -> str:
         """Format the current path as a string."""
         elements: list[str] = []
         for e in self.path:
             if isinstance(e, str):
-                elements.append(f'.{e}')
+                elements.append(f".{e}")
             elif isinstance(e, int):
-                elements.append(f'[{e}]')
-        path = ''.join(elements).lstrip('.').replace('.]', ']')
-        if path == '':
+                elements.append(f"[{e}]")
+        path = "".join(elements).lstrip(".").replace(".]", "]")
+        if path == "":
             path = "root"
         return "'" + path + "'"
-    
+
     def _post(
         self,
         msg: str,
         severity: DiagnosticSeverity,
-        *,
-        field_name: str | None,
-        use_path: bool = False,
     ):
         """Post a diagnostic message to the diagnostics list with a field name."""
+        if severity == DiagnosticSeverity.ERROR:
+            self._has_error = True
+
         # Prepend the field name or path to the message if applicable.
-        if field_name:
-            msg = f"From field {field_name!r}: {msg}"
-        elif use_path:
-            msg = f"From path {self._format_path()}: {msg}"
         if severity <= self.diagnostic_level:
             self._diagnostics.append(DiagnosticMessage(severity=severity, message=msg))
 
-    def error(self, msg: str, field_name: str | None = None, use_path: bool = False):
+    def error(self, msg: str):
         """Post an error message to the diagnostics list."""
-        self._post(msg, DiagnosticSeverity.ERROR, field_name=field_name, use_path=use_path)
+        self._post(
+            msg, DiagnosticSeverity.ERROR
+        )
 
-    def warning(self, msg: str, field_name: str | None = None, use_path: bool = False):
+    def warning(self, msg: str):
         """Post a warning message to the diagnostics list."""
-        self._post(msg, DiagnosticSeverity.WARNING, field_name=field_name, use_path=use_path)
+        self._post(
+            msg, DiagnosticSeverity.WARNING
+        )
 
-    def debug(self, msg: str, field_name: str | None = None, use_path: bool = False):
+    def debug(self, msg: str):
         """Post a debug message to the diagnostics list."""
-        self._post(msg, DiagnosticSeverity.DEBUG, field_name=field_name, use_path=use_path)
+        self._post(
+            msg, DiagnosticSeverity.DEBUG
+        )
 
     def set_severity_level(self, severity: DiagnosticSeverity):
         self.diagnostic_level = severity
@@ -78,12 +81,16 @@ class Diagnostics:
         return Diagnostics(
             diag_in=self._diagnostics,
             diagnostic_level=self.diagnostic_level,
-            path=self.path if leaf is None else (self.path + (leaf,))
+            path=self.path if leaf is None else (self.path + (leaf,)),
         )
 
     @property
     def diagnostics(self) -> list[DiagnosticMessage]:
         return self._diagnostics
+
+    @property
+    def has_error(self) -> bool:
+        return self._has_error
 
     def type_check_error(
         self,

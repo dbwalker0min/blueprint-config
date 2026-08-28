@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
-import inspect
 from abc import ABC, abstractmethod
-from collections.abc import Collection
+from collections.abc import Callable, Collection
+from copy import copy
 from typing import Any, ClassVar, Self
 
 from .diagnostic import DiagnosticMessage, Diagnostics
-from .types import MISSING, Status, _Missing
+from .types import MISSING, ParamTypeChk, Status, _Missing
 
 
 class FieldItem(ABC):
@@ -16,58 +16,88 @@ class FieldItem(ABC):
 
     def __init__(
         self,
-        *,
-        name: _Missing = MISSING,
-        default: Any = MISSING,
-        required: bool | _Missing = MISSING,
-        description: str | _Missing = MISSING,
-        section: InputSection | _Missing = MISSING,
-        allow_none: bool | _Missing = MISSING,
-        **kwargs,
+        **field_arguments,
     ):
-        # The arguments provided are the common parameters for selectors that contain
-        # entities for input sections and object selectors.
-        # The valid properties and their function is determined by the object that
-        # instantiates them. This keeps me from having to specify and handle all possible
-        # properties in the specific selectors.
-        #
-        # Do this first before anyone adds more variables
-        # This keeps track of *all* variables that have been explicitly specified
-        specified_values: set[str] = {
-            f
-            for f, v in locals().items()
-            if f not in {"self", "__class__", "kwargs"} and v is not MISSING
-        } | set(kwargs)
+        self._original_field_arguments = field_arguments
+        self._field_args = {}
+        self._validate_diagnostics: Diagnostics | None = None
 
-        super().__init__()
-        self.specified_values = specified_values
+        # Define starting values and types of common parameters
+        self.default: Any | _Missing = MISSING
+        self.allow_none: bool = False
+        self.name: str = ""
+        self.description: str = ""
 
-        # Keep track of unknown parameters
-        self.unknown_parameters: set[str] = set(kwargs)
+    def _consume_arg(
+        self,
+        param_chk: ParamTypeChk,
+        convert: Callable[[Any], Any] | None = None,
+    ):
+        """Consume a field argument, performing type checking and conversion if necessary.
 
-        self.name = (
-            "" if name is MISSING else name.strip() if isinstance(name, str) else name
-        )
+        Args:
+            parameter_chk (ParamTypeChk): The parameter type check information.
+            convert (Callable[[Any], Any] | None): Optional conversion function to apply to the value.
+        """
+        if self._validate_diagnostics is None:
+            raise RuntimeError(
+                "Validation diagnostics not set before consuming arguments"
+            )
 
-        self.description = (
-            ""
-            if description is MISSING
-            else inspect.cleandoc(description)
-            if isinstance(description, str)
-            else description
-        )
+        value = self._field_args.pop(param_chk.param, MISSING)
 
-        self.required = False if required is MISSING else required
-        self.section = None if section is MISSING else section
-        self.allow_none = False if allow_none is MISSING else allow_none
+        value_type = type(value)
+        if value is MISSING:
+            value = param_chk.default
+        elif param_chk.exp_type is not value_type:
+            msg = (
+                f"From field {self._field_name}: "
+                f"Expected type {param_chk.exp_type.__name__!r}, "
+                f"got type {value_type.__name__!r}"
+            )
+            self._validate_diagnostics.error(msg)
+            value = param_chk.default
+        elif convert is not None:
+            value = convert(value)
 
-        # allow missing to propagate
-        self.default = default
+        setattr(self, param_chk.param, value)
 
-    @abstractmethod
+    def finalize_validation(self):
+        """Final validation after all arguments have been consumed"""
+        if self._validate_diagnostics is None:
+            raise RuntimeError(
+                "Validation diagnostics not set before finalizing validation"
+            )
+
+        # Check for any remaining unused field arguments
+        for parameter_name, value in self._field_args.items():
+            self._validate_diagnostics.error(
+                f"From field {self._field_name}: "
+                f"Unused field argument: {parameter_name}={value}"
+            )
+        self._validate_diagnostics = None
+
     def validate(
-        self, field_name: str, diag: Diagnostics, valid_properties: Collection[str]
-    ): ...
+        self,
+        cls: type[ConfigObject],
+        field_name: str,
+        diag: Diagnostics,
+    ):
+        self._field_args = copy(self._original_field_arguments)
+
+        # don't pass around the diagnostics object to the field name
+        self._validate_diagnostics = diag
+        self._field_name = field_name
+
+        type_checking: frozenset[ParamTypeChk] = cls.VALID_FIELD_PROPERTIES | frozenset(
+            [
+                ParamTypeChk("name", str, ""),
+                ParamTypeChk("description", str, ""),
+                ParamTypeChk("allow_none", bool, False),
+            ]
+        )
+        for parameter_chk in type_checking:
+            self._consume_arg(parameter_chk)
 
     @abstractmethod
     def convert(self, value: Any, diag: Diagnostics | None) -> Status: ...
@@ -77,8 +107,8 @@ class FieldItem(ABC):
 
 
 class ConfigObject(ABC):
+    VALID_FIELD_PROPERTIES: frozenset[ParamTypeChk] = frozenset()
     _registry: ClassVar[dict[tuple[str, str], Self]] = {}
-    VALID_FIELD_PROPERTIES: frozenset[str] = frozenset()
 
     def __init_subclass__(cls, *, register: bool = True, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -94,7 +124,7 @@ class ConfigObject(ABC):
 
         # validate the fields and input sections
         for k, v in cls.blueprint_items().items():
-            v.validate(k, cls._diag, cls.VALID_FIELD_PROPERTIES)
+            v.validate(k, cls._diag, cls)
 
         # validate myself
         cls.validate(cls._diag)
@@ -119,7 +149,7 @@ class ConfigObject(ABC):
                 )
                 return
 
-            setattr(self, name, field.convert(value))
+            setattr(self, name, field.convert(value, self._load_diag))
 
     def get_load_diagnostics(self) -> list[DiagnosticMessage]:
         return self._load_diag.diagnostics
@@ -182,18 +212,24 @@ class ConfigObject(ABC):
     @abstractmethod
     def render_field(cls, field: FieldItem) -> dict[str, Any]: ...
 
+    @classmethod
+    @abstractmethod
+    def validate_field_args(cls, field_name: str, arguments: dict[str, Any]): ...
+
 
 class BlueprintObject(ConfigObject, register=False):
-    VALID_FIELD_PROPERTIES: frozenset[str] = frozenset(
-        ["name", "description", "default", "allow_none", "section"]
+    VALID_FIELD_PROPERTIES: frozenset[ParamTypeChk] = frozenset(
+        [
+            ParamTypeChk("section", FieldItem, None),
+        ]
     )
 
     # Blueprint metadata and path of blueprint to write
     blueprint_name: str
     blueprint_path: str
-    blueprint_description: str = ''
-    blueprint_author: str = ''
-    blueprint_minimum_version: str = ''
+    blueprint_description: str = ""
+    blueprint_author: str = ""
+    blueprint_minimum_version: str = ""
 
     @classmethod
     def validate(cls, diagnostics: Diagnostics):
@@ -217,11 +253,22 @@ class BlueprintObject(ConfigObject, register=False):
         result["selector"] = field.selector()
         return result
 
+    @classmethod
+    def get_valid_args(
+        cls, field_name: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        valid_args = {}
+        if "section" in arguments:
+            valid_args["section"] = arguments.pop("section")
+
+        return valid_args
+
 
 class EmbeddedObject(ConfigObject, register=False):
     VALID_FIELD_PROPERTIES = frozenset(
         ["name", "description", "default", "allow_none", "required"]
     )
+
     @classmethod
     def validate(cls, diagnostics: Diagnostics):
         """Validate the configuration object and post any diagnostics to the provided diagnostics object"""
@@ -242,33 +289,6 @@ class EmbeddedObject(ConfigObject, register=False):
         result["selector"] = field.selector()
         return result
 
-
-class Field(FieldItem, ABC):
-    """This is a base class for fields in a configuration object. It provides common functionality for all fields."""
-
-    def validate(
-        self, field_name: str, diag: Diagnostics, valid_properties: Collection[str]
-    ):
-        """Validate the provided arguments to the field"""
-        for parameter_name, expected_type, allow_missing in GENERIC_FIELD_VALIDATION:
-            # just check the values that were specified
-            if parameter_name not in self.specified_values:
-                continue
-            # The parameter was specified, so we need to validate it
-            if parameter_name in valid_properties:
-                value: Any = getattr(self, parameter_name)
-                diag.type_check_error(
-                    field_name, parameter_name, expected_type, value, allow_missing
-                )
-            else:
-                diag.error(
-                    f"Property {parameter_name!r} is not allowed here", field_name
-                )
-
-        # report any unknown parameters
-        for parameter_name in self.unknown_parameters:
-            diag.error(f"Unknown parameter {parameter_name!r}", field_name)
-
     def __set_name__(self, owner, name: str):
         """This is called when the field is assigned to a class attribute"""
         self.attr_name = name
@@ -286,17 +306,14 @@ class Field(FieldItem, ABC):
         instance.__dict__[self.attr_name] = value
 
     @abstractmethod
-    def convert(self, value): ...
+    def convert(self, value: Any, diag: Diagnostics | None = None): ...
 
     @abstractmethod
     def selector(self) -> dict: ...
 
 
-class Boolean(Field):
-    def __init__(self, default: bool | None | _Missing = MISSING, **kwargs):
-        super().__init__(default=default, **kwargs)
-
-    def convert(self, value: bool | None):
+class Boolean(FieldItem):
+    def convert(self, value: bool | None, diag: Diagnostics | None = None):
         if isinstance(value, bool):
             return value
 
@@ -313,9 +330,7 @@ class Boolean(Field):
     def selector(self) -> dict:
         return {"boolean": {}}
 
-    def validate(
-        self, field_name: str, diag: Diagnostics, valid_properties: Collection[str]
-    ):
+    def validate(self, field_name: str, diag: Diagnostics):
         super().validate(field_name, diag, valid_properties)
 
         # just check the type of the default value.
@@ -323,7 +338,7 @@ class Boolean(Field):
 
 
 class Time(Field):
-    def convert(self, value):
+    def convert(self, value: str | dt.time, diag: Diagnostics | None = None):
         if isinstance(value, str):
             return dt.time.fromisoformat(value)
 
@@ -427,7 +442,10 @@ class Object(Field):
 
     def convert(self, value: Any):
         # This would occur if there were an error during parsing
-        if not (isinstance(self.object_class, type) and issubclass(self.object_class, EmbeddedObject)):
+        if not (
+            isinstance(self.object_class, type)
+            and issubclass(self.object_class, EmbeddedObject)
+        ):
             raise TypeError(
                 f"'object_class' must be a class derived from 'EmbeddedObject'. "
                 f"Is of type {type(self.object_class).__name__!r}"
@@ -436,14 +454,16 @@ class Object(Field):
         if value is None and self.allow_none:
             return [] if self.multiple else None
 
-
         if self.multiple:
             return [self.object_class.from_dict(item) for item in value]
 
         return self.object_class.from_dict(value)
 
     def selector(self) -> dict:
-        if not (isinstance(self.object_class, type) and issubclass(self.object_class, EmbeddedObject)):
+        if not (
+            isinstance(self.object_class, type)
+            and issubclass(self.object_class, EmbeddedObject)
+        ):
             return {}
 
         obj: dict[str, Any] = {"fields": self.object_class.blueprint_fragment()}
