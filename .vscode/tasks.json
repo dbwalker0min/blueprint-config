@@ -11,7 +11,7 @@
         "--python",
         "${command:python.interpreterPath}",
         "--mode",
-        "create,fix"
+        "create,fix",
         "${file}",
         "${lineNumber}",
       ],
