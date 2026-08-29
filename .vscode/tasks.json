@@ -1,0 +1,22 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Update snapshot (test at cursor)",
+      "type": "shell",
+      "command": "uvx",
+      "args": [
+        "vscode-pytest-update-snapshot",
+        "cli",
+        "--python",
+        "${command:python.interpreterPath}",
+        "--mode",
+        "create,fix"
+        "${file}",
+        "${lineNumber}",
+      ],
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

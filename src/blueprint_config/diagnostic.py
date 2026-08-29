@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
 from enum import IntEnum, auto
-from typing import Any, NamedTuple
-
-from .types import MISSING, Status
+from typing import NamedTuple
 
 
 class DiagnosticSeverity(IntEnum):
@@ -15,6 +15,7 @@ class DiagnosticSeverity(IntEnum):
 class DiagnosticMessage(NamedTuple):
     severity: DiagnosticSeverity
     message: str
+    context: str = ""
 
 
 class Diagnostics:
@@ -22,25 +23,12 @@ class Diagnostics:
         self,
         diag_in: list[DiagnosticMessage] | None = None,
         diagnostic_level: DiagnosticSeverity = DiagnosticSeverity.WARNING,
-        path: tuple[str | int, ...] = (),
+        context: str = "",
     ):
-        self._diagnostics: list[DiagnosticMessage] = diag_in or []
+        self._diagnostics: list[DiagnosticMessage] = [] if diag_in is None else diag_in
         self.diagnostic_level = diagnostic_level
-        self.path = path
+        self.context = context
         self._has_error = False
-
-    def _format_path(self) -> str:
-        """Format the current path as a string."""
-        elements: list[str] = []
-        for e in self.path:
-            if isinstance(e, str):
-                elements.append(f".{e}")
-            elif isinstance(e, int):
-                elements.append(f"[{e}]")
-        path = "".join(elements).lstrip(".").replace(".]", "]")
-        if path == "":
-            path = "root"
-        return "'" + path + "'"
 
     def _post(
         self,
@@ -53,36 +41,42 @@ class Diagnostics:
 
         # Prepend the field name or path to the message if applicable.
         if severity <= self.diagnostic_level:
-            self._diagnostics.append(DiagnosticMessage(severity=severity, message=msg))
+            self._diagnostics.append(
+                DiagnosticMessage(severity=severity, message=msg, context=self.context)
+            )
 
     def error(self, msg: str):
         """Post an error message to the diagnostics list."""
-        self._post(
-            msg, DiagnosticSeverity.ERROR
-        )
+        self._post(msg, DiagnosticSeverity.ERROR)
 
     def warning(self, msg: str):
         """Post a warning message to the diagnostics list."""
-        self._post(
-            msg, DiagnosticSeverity.WARNING
-        )
+        self._post(msg, DiagnosticSeverity.WARNING)
 
     def debug(self, msg: str):
         """Post a debug message to the diagnostics list."""
-        self._post(
-            msg, DiagnosticSeverity.DEBUG
-        )
+        self._post(msg, DiagnosticSeverity.DEBUG)
 
     def set_severity_level(self, severity: DiagnosticSeverity):
         self.diagnostic_level = severity
 
-    def child(self, leaf: str | int | None = None) -> Diagnostics:
-        """Create a child diagnostics object with an extended path."""
-        return Diagnostics(
-            diag_in=self._diagnostics,
-            diagnostic_level=self.diagnostic_level,
-            path=self.path if leaf is None else (self.path + (leaf,)),
-        )
+    @contextmanager
+    def child(self, leaf: str | int | None = None) -> Generator[Diagnostics]:
+        """Create a child context for the diagnostics object."""
+        old_context = self.context
+
+        if leaf is not None:
+            self.context = (
+                self.context + f".{leaf}"
+                if isinstance(leaf, str)
+                else self.context + f"[{leaf}]"
+            )
+
+        self.debug(f"Entering child context: {self.context}")
+        try:
+            yield self
+        finally:
+            self.context = old_context
 
     @property
     def diagnostics(self) -> list[DiagnosticMessage]:
@@ -91,29 +85,3 @@ class Diagnostics:
     @property
     def has_error(self) -> bool:
         return self._has_error
-
-    def type_check_error(
-        self,
-        field_name: str,
-        parameter_name: str,
-        expected_type: type,
-        value: Any,
-        allow_missing: bool = False,
-    ) -> Status:
-        """Post a type check error to the diagnostics list if the type of the value
-        does not match the expected type. This is only called on classes.
-        """
-        error_detected = False
-        if allow_missing and value is MISSING:
-            return Status.VALID
-
-        value_type = type(value)
-        if expected_type is not value_type:
-            error_detected = True
-            msg = (
-                f"Type check failed for parameter {parameter_name!r} "
-                f"of field {field_name!r}: expected type {expected_type.__name__}, "
-                f"got type {value_type.__name__}"
-            )
-            self.error(msg, field_name)
-        return Status.INVALID if error_detected else Status.VALID
