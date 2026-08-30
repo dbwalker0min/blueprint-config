@@ -119,7 +119,7 @@ class BlueprintItem(ABC):
 
         # Get (most) of the type checking parameters for the field
         type_checking: frozenset[ParamTypeChk] = (
-            parent.VALID_FIELD_PROPERTIES
+            self.__class__.FIELD_PARAM_TYPE_CHECKS
             | frozenset(
                 [
                     ParamTypeChk("name", str, ""),
