@@ -1,15 +1,15 @@
 from inline_snapshot import snapshot
 
-from blueprint_config.diagnostic import DiagnosticSeverity
-from blueprint_config.fields import BlueprintObject, Boolean
+from blueprint_config import BlueprintConfig, Boolean, DiagnosticSeverity
 
 
 def test_simple_config_object_empty():
-    class MyConfig(BlueprintObject):
+    class MyConfig(BlueprintConfig):
         pass
 
-    d = MyConfig.diagnostics().diagnostics
-    registry = BlueprintObject.get_registry()
+    d = MyConfig.get_build_diagnostics()
+    print(d)
+    registry = BlueprintConfig.get_registry()
     assert MyConfig in registry.values()
     assert len(d) == 1
     assert d[0].message == snapshot(
@@ -19,10 +19,10 @@ def test_simple_config_object_empty():
 
 
 def test_simple_bp_object_minimal():
-    class MyBP(BlueprintObject):
+    class MyBP(BlueprintConfig):
         check = Boolean(name="Check")
 
-    assert len(MyBP.diagnostics().diagnostics) == 0
+    assert len(MyBP.get_build_diagnostics()) == 0
     assert MyBP.blueprint_fragment() == snapshot(
         {"check": {"name": "Check", "selector": {"boolean": {}}}}
     )
@@ -34,7 +34,7 @@ def test_simple_bp_object_minimal():
 
 
 def test_simple_bp_object_missing_value():
-    class MyBP(BlueprintObject):
+    class MyBP(BlueprintConfig):
         check = Boolean(name="Check")
 
     assert len(MyBP.diagnostics().diagnostics) == 0
@@ -53,7 +53,7 @@ def test_simple_bp_object_missing_value():
 
 
 def test_simple_bp_object_missing_and_default():
-    class MyBP(BlueprintObject):
+    class MyBP(BlueprintConfig):
         check = Boolean(name="Check", default=True)
 
     assert len(MyBP.diagnostics().diagnostics) == 0

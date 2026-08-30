@@ -1,26 +1,25 @@
 import pytest
 from inline_snapshot import snapshot
 
-from blueprint_config.diagnostic import Diagnostics
-from blueprint_config.fields import Boolean
+from blueprint_config import Boolean, Diagnostics
 
 
 def test_simple_boolean_field():
     b = Boolean()
 
     d = Diagnostics()
-    b.validate("test_field", d, [])
+    b.validate(None, "test_field", d)
     diagnostics = d.diagnostics
     print(diagnostics)
     assert len(diagnostics) == 0
 
     # Testing that the convert method works correctly for True and False
-    assert b.convert(True) is True
-    assert b.convert(False) is False
+    assert b.convert(True, d) is True
+    assert b.convert(False, d) is False
 
     # Testing that None with no default raises a ValueError
     with pytest.raises(ValueError) as excinfo:
-        b.convert(None)
+        b.convert(None, d)
     assert str(excinfo.value) == snapshot(
         "Boolean field has no default and no value was provided"
     )
@@ -30,7 +29,7 @@ def test_name_given_boolean_field():
     b = Boolean(name="My boolean")
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
@@ -45,7 +44,7 @@ def test_name_given_description_field():
     )
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
@@ -55,7 +54,7 @@ def test_description_single_line():
     b = Boolean(name="My boolean", description="This is a boolean field")
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
@@ -69,7 +68,7 @@ def test_description_multiline_first_line_inline():
     )
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
@@ -84,7 +83,7 @@ def test_description_blank_lines():
     )
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
@@ -98,7 +97,7 @@ def test_description_blank():
     )
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
@@ -108,7 +107,7 @@ def test_description_nonstring():
     b = Boolean(name="My boolean", description=12345)
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 1
@@ -123,7 +122,7 @@ def test_default_missing():
     b = Boolean(name="My boolean")
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
@@ -133,43 +132,43 @@ def test_default_true():
     b = Boolean(name="My boolean", default=True)
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description", "default"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     print(diagnostics)
     assert len(diagnostics) == 0
 
     # Test convert method for True and False
-    assert b.convert(True) is True
-    assert b.convert(False) is False
+    assert b.convert(True, d) is True
+    assert b.convert(False, d) is False
     # Test convert method for None when default is provided
-    assert b.convert(None) is True
+    assert b.convert(None, d) is True
 
     # Test convert for None with default
-    assert b.convert(None) == True
+    assert b.convert(None, d) == True
 
 
 def test_default_false():
     b = Boolean(name="My boolean", default=False)
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
 
     # Test convert method for True and False
-    assert b.convert(True) is True
-    assert b.convert(False) is False
+    assert b.convert(True, d) is True
+    assert b.convert(False, d) is False
     # Test convert method for None when default is provided
-    assert b.convert(None) is False
+    assert b.convert(None, d) is False
 
 
 def test_default_nonboolean():
     b = Boolean(name="My boolean", default=12345)  # ty:ignore[invalid-argument-type]
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 1
@@ -184,13 +183,13 @@ def test_with_allow_none_true_and_default_none():
     b = Boolean(name="My boolean", allow_none=True)
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description", "allow_none"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
 
     # Test convert method for None when allow_none is True
-    assert b.convert(None) is None
+    assert b.convert(None, d) is None
 
 
 def test_with_invalid_key():
@@ -198,27 +197,31 @@ def test_with_invalid_key():
     b = Boolean(name="My boolean", invalid_key=True)
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 1
     assert diagnostics[0].severity.name == "ERROR"
-    assert diagnostics[0].message == snapshot("From field 'test_field': Unknown parameter 'invalid_key'")
+    assert diagnostics[0].message == snapshot(
+        "From field 'test_field': Unknown parameter 'invalid_key'"
+    )
+
 
 def test_with_required_key_set_and_allowed():
     b = Boolean(name="My boolean", required=True)
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description", "required"])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 0
+
 
 def test_with_required_key_set_and_not_allowed():
     b = Boolean(name="My boolean", required=True)
 
     d = Diagnostics()
-    b.validate("test_field", d, ["name", "description", ])
+    b.validate("test_field", d)
 
     diagnostics = d.diagnostics
     assert len(diagnostics) == 1

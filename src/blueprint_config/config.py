@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, ClassVar, Self
 
 from .diagnostic import DiagnosticMessage, Diagnostics
-from .items import FieldItem, InputSection
+from .items import BlueprintItem, FieldItem, InputSection
 from .types import MISSING, ParamTypeChk
 
 
@@ -13,7 +13,7 @@ class BaseConfig(ABC):
     EXCLUDED_ITEMS: frozenset[str] = frozenset()
 
     # This registers all subclasses of ConfigObject in the _registry dictionary
-    _registry: ClassVar[dict[tuple[str, str], Self]] = {}
+    _registry: ClassVar[dict[tuple[str, str], type[Self]]] = {}
 
     def __init_subclass__(cls, *, register: bool = True, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -25,8 +25,12 @@ class BaseConfig(ABC):
         # Register the most recent definition of this class
         if register:
             key = (cls.__module__, cls.__qualname__)
-            BaseConfig._registry[key] = cls  # ty:ignore[invalid-assignment]
+            BaseConfig._registry[key] = cls
 
+        if len(cls.blueprint_items()) == 0:
+            cls._build_diag.error(
+                f"No fields defined in the configuration object {cls.__name__!r}."
+            )
         # validate the fields and input sections
         for k, v in cls.blueprint_items().items():
             v.validate(cls, k, cls._build_diag)
@@ -36,7 +40,7 @@ class BaseConfig(ABC):
 
     def __init__(self, **values):
         # create the diagnostics if it doesn't already exist
-        self._load_diag = getattr(self, '_load_diag', Diagnostics())
+        self._load_diag = getattr(self, "_load_diag", Diagnostics())
 
         # iterate over all field items and set their values
         for name, field in self.field_items().items():
@@ -82,12 +86,13 @@ class BaseConfig(ABC):
         return {
             name: value
             for name, value in cls.__dict__.items()
-            if isinstance(value, (BaseConfig))
+            if isinstance(value, (BlueprintItem))
         }
 
     @classmethod
     def get_registry(cls) -> dict[tuple[str, str], type[BaseConfig]]:
-        return BaseConfig._registry  # ty:ignore[invalid-return-type]
+        """Return the registry of all blueprint configurations."""
+        return BaseConfig._registry
 
     def __repr__(self):
         """Return a string representation of the configuration object"""
@@ -130,10 +135,12 @@ class BaseConfig(ABC):
 
     @classmethod
     @abstractmethod
-    def render_field(cls, field: FieldItem) -> dict[str, Any]: ...
+    def render_field(cls, field: FieldItem) -> dict[str, Any]:
+        """Render a blueprint fragment for the given field."""
 
     @classmethod
     def validate_config(cls, diag: Diagnostics):
+        """Extra validation for the configuration object."""
         return
 
 
@@ -164,7 +171,7 @@ class BlueprintConfig(BaseConfig, register=False):
 
 
 class EmbeddedObject(BaseConfig, register=False):
-    EXCLUDED_ITEM_CLASSES = frozenset([InputSection])
+    EXCLUDED_ITEM_CLASSES: frozenset[type[BlueprintItem]] = frozenset([InputSection])
 
     @classmethod
     def render_field(cls, field: FieldItem) -> dict[str, Any]:
