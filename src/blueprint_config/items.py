@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from copy import copy
@@ -18,7 +19,7 @@ class BlueprintItem(ABC):
     FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset(
         [
             ParamTypeChk("name", str, ""),
-            ParamTypeChk("description", str, ""),
+            ParamTypeChk("description", str, "", converter=inspect.cleandoc),
             ParamTypeChk("allow_none", bool, False),
         ]
     )
@@ -36,7 +37,6 @@ class BlueprintItem(ABC):
         self._validate_diagnostics: Diagnostics | None = None
         # Field name for this blueprint item. Set in validate.
         self._field_name: str = ""
-
 
         # The parent class that this blueprint item belongs to. Set in validate.
         self._parent_class: type[BaseConfig] | None = None
@@ -120,13 +120,7 @@ class BlueprintItem(ABC):
         # Get (most) of the type checking parameters for the field
         type_checking: frozenset[ParamTypeChk] = (
             self.__class__.FIELD_PARAM_TYPE_CHECKS
-            | frozenset(
-                [
-                    ParamTypeChk("name", str, ""),
-                    ParamTypeChk("description", str, ""),
-                    ParamTypeChk("allow_none", bool, False),
-                ]
-            )
+            | BlueprintItem.FIELD_PARAM_TYPE_CHECKS
         )
         for parameter_chk in type_checking:
             self._consume_arg(parameter_chk)

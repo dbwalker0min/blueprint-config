@@ -1,9 +1,11 @@
+import inspect
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, ClassVar, Self
 
 from .diagnostic import DiagnosticMessage, Diagnostics
 from .items import BlueprintItem, FieldItem, InputSection
-from .types import MISSING, ParamTypeChk
+from .types import MISSING, InputRef, ParamTypeChk
 
 
 class BaseConfig(ABC):
@@ -42,8 +44,10 @@ class BaseConfig(ABC):
         # create the diagnostics if it doesn't already exist
         self._load_diag = getattr(self, "_load_diag", Diagnostics())
 
+        field_items = self.field_items()
         # iterate over all field items and set their values
-        for name, field in self.field_items().items():
+        for name, field in field_items.items():
+            # Consume the field
             with self._load_diag.child(leaf=name):
                 if name in values:
                     value = values.pop(name)
@@ -61,6 +65,8 @@ class BaseConfig(ABC):
                     return
 
                 setattr(self, name, field.convert(value, self._load_diag))
+        for f,v  in values.items():
+            self._load_diag.warning(f"Unused field argument: {f}={v!r}")
 
     def get_load_diagnostics(self) -> list[DiagnosticMessage]:
         """Return the diagnostics for the configuration object after loading."""
@@ -146,11 +152,41 @@ class BaseConfig(ABC):
 
 class BlueprintConfig(BaseConfig, register=False):
     # Blueprint metadata and path of blueprint to write
-    blueprint_name: str
-    blueprint_path: str
+    blueprint_path: Path | None = None
+    blueprint_name: str = ""
     blueprint_description: str = ""
     blueprint_author: str = ""
     blueprint_minimum_version: str = ""
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+
+        for attr in (
+            "blueprint_name",
+            "blueprint_description",
+            "blueprint_author",
+            "blueprint_minimum_version",
+        ):
+            if not isinstance(getattr(cls, attr), str):
+                raise TypeError(f"Blueprint attribute '{attr}' must be a string.")
+
+        if not cls.blueprint_name:
+            raise ValueError(
+                "Blueprint name (str) is required for the Blueprint class."
+            )
+
+        # It's okay if the blueprint path is not set.
+        # It just means it won't be written.
+        if not cls.blueprint_path:
+            return
+
+        # make sure that the blueprint path is a Path object
+        if isinstance(cls.blueprint_path, (Path, str)):
+            cls.blueprint_path = Path(cls.blueprint_path)
+            if not cls.blueprint_path.is_absolute():
+                raise ValueError(
+                    f"Blueprint path, '{cls.blueprint_path}', must be an absolute path."
+                )
 
     @classmethod
     def render_field(cls, field: FieldItem) -> dict[str, Any]:
@@ -167,6 +203,53 @@ class BlueprintConfig(BaseConfig, register=False):
             result["default"] = v
 
         result["selector"] = field.selector()
+        return result
+
+    @classmethod
+    def _generate_blueprint_sequence(cls) -> dict[str, Any]:
+        """Generate the blueprint sequence for this configuration."""
+        result = {}
+        sequence: dict[str, Any] = {
+            "sequence": [
+                {"variables": {"result": result}},
+                {
+                    "stop": "Return blueprint configuration",
+                    "response_variable": "result",
+                },
+            ],
+        }
+
+        # generate the producing the variable `result`
+        for fld in cls.field_items():
+            result[fld] = InputRef(fld)
+
+        return sequence
+
+    @classmethod
+    def build_blueprint(cls) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+
+        blueprint = {"domain": "script"}
+
+        if not cls.blueprint_name:
+            raise ValueError("Blueprint name is required.")
+
+        if cls.blueprint_name:
+            blueprint["name"] = cls.blueprint_name
+        if cls.blueprint_description:
+            blueprint["description"] = inspect.cleandoc(cls.blueprint_description)
+        if cls.blueprint_author:
+            blueprint["author"] = cls.blueprint_author
+        if cls.blueprint_minimum_version:
+            blueprint["minimum_version"] = cls.blueprint_minimum_version
+
+        blueprint["input"] = cls.blueprint_fragment()
+
+        result["blueprint"] = blueprint
+
+        result["sequence"] = cls._generate_blueprint_sequence()
+
+        result["mode"] = "single"
         return result
 
 

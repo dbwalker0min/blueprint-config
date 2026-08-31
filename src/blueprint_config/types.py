@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from enum import Enum, auto
 from typing import Any, NamedTuple
 
@@ -13,13 +14,20 @@ class _Missing:
 
 class Status(Enum):
     """This makes the status of a return code explicit."""
+
     VALID = auto()
     INVALID = auto()
 
 
 MISSING = _Missing()
 
+
 class ParamTypeChk(NamedTuple):
     param: str
     exp_type: type
     default: Any
+    converter: Callable[[Any], Any] | None = None
+
+
+class InputRef(str):
+    """This class represents an !input reference in the blueprint configuration."""

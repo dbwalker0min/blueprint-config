@@ -1,3 +1,7 @@
+from pprint import pprint
+
+import pytest
+import yaml
 from inline_snapshot import snapshot
 
 from blueprint_config import (
@@ -5,12 +9,29 @@ from blueprint_config import (
     Boolean,
     DiagnosticMessage,
     DiagnosticSeverity,
+    InputRef,
 )
+
+
+def str_presenter(dumper, data):
+    """YAML representer for multi-line strings."""
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+def represent_input_ref(dumper, data):
+    """YAML representer for InputRef objects."""
+    return dumper.represent_scalar("!input", str(data))
+
+
+yaml.add_representer(str, str_presenter)
+yaml.add_representer(InputRef, represent_input_ref)
 
 
 def test_simple_config_object_empty():
     class MyConfig(BlueprintConfig):
-        pass
+        blueprint_name = "MyConfig"
 
     d = MyConfig.get_build_diagnostics()
     print(d)
@@ -23,23 +44,116 @@ def test_simple_config_object_empty():
     assert d[0].severity == snapshot(DiagnosticSeverity.ERROR)
 
 
+def test_simple_config_object_with_no_blueprint_name():
+
+    with pytest.raises(ValueError):
+
+        class MyConfig(BlueprintConfig):
+            pass
+
+
+def test_simple_config_object_with_invalid_type_blueprint_name():
+    with pytest.raises(TypeError):
+
+        class MyConfig(BlueprintConfig):
+            blueprint_name = 123
+
+
 def test_simple_bp_object_minimal():
     class MyBP(BlueprintConfig):
+        blueprint_name = "MyBP"
+
         check = Boolean(name="Check")
 
     assert len(MyBP.get_build_diagnostics()) == 0
-    assert MyBP.blueprint_fragment() == snapshot(
-        {"check": {"name": "Check", "selector": {"boolean": {}}}}
+
+    pprint(MyBP.build_blueprint())
+
+    # It's easier to see in yaml
+    assert MyBP.build_blueprint() == snapshot(
+        {
+            "blueprint": {
+                "domain": "script",
+                "name": "MyBP",
+                "input": {
+                    "check": {
+                        "name": "Check",
+                        "default": False,
+                        "selector": {"boolean": {}},
+                    }
+                },
+            },
+            "sequence": {
+                "sequence": [
+                    {"variables": {"result": {"check": "check"}}},
+                    {
+                        "stop": "Return blueprint configuration",
+                        "response_variable": "result",
+                    },
+                ]
+            },
+            "mode": "single",
+        }
     )
 
-    # now test loading it
-    mybp = MyBP(check=True)
-    assert isinstance(mybp, MyBP)
-    assert mybp.check is True
+
+def test_simple_bp_object_with_author_and_description():
+    class MyBP(BlueprintConfig):
+        blueprint_name = "MyBP"
+        blueprint_author = "Author Name"
+        blueprint_description = """
+            <p>This is a multi-line
+            description. It has a markdown list:
+
+            - Item 1
+            - Item 2
+            - Item 3
+            """
+        check = Boolean(name="Check")
+
+    assert len(MyBP.get_build_diagnostics()) == 0
+    bp = MyBP.build_blueprint()
+    pprint(bp)
+    print(yaml.dump(bp, sort_keys=False))
+    assert bp == snapshot(
+        {
+            "blueprint": {
+                "domain": "script",
+                "name": "MyBP",
+                "description": """\
+<p>This is a multi-line
+description. It has a markdown list:
+
+- Item 1
+- Item 2
+- Item 3\
+""",
+                "author": "Author Name",
+                "input": {
+                    "check": {
+                        "name": "Check",
+                        "default": False,
+                        "selector": {"boolean": {}},
+                    }
+                },
+            },
+            "sequence": {
+                "sequence": [
+                    {"variables": {"result": {"check": "check"}}},
+                    {
+                        "stop": "Return blueprint configuration",
+                        "response_variable": "result",
+                    },
+                ]
+            },
+            "mode": "single",
+        }
+    )
 
 
 def test_simple_bp_object_missing_value():
     class MyBP(BlueprintConfig):
+        blueprint_name = "MyBP"
         check = Boolean(name="Check")
 
     assert len(MyBP.get_build_diagnostics()) == 0
@@ -50,6 +164,7 @@ def test_simple_bp_object_missing_value():
     # now test loading it
     mybp = MyBP()
     diagnostics = mybp.get_load_diagnostics()
+    print(diagnostics)
     assert len(diagnostics) == 1
     assert diagnostics[0].message == snapshot(
         "No value provided for field with no default value and 'allow_none' false"
@@ -60,6 +175,7 @@ def test_simple_bp_object_missing_value():
 
 def test_simple_bp_object_missing_and_default():
     class MyBP(BlueprintConfig):
+        blueprint_name = "MyBP"
         check = Boolean(name="Check", default=True)
 
     print(MyBP.get_build_diagnostics())
@@ -77,6 +193,7 @@ def test_simple_bp_object_missing_and_default():
 
 def test_simple_bp_object_with_extra_parameter():
     class MyBP(BlueprintConfig):
+        blueprint_name = "MyBP"
         check = Boolean(name="Check", extra="asdf")
 
     print(MyBP.get_build_diagnostics())
@@ -93,13 +210,22 @@ def test_simple_bp_object_with_extra_parameter():
         DiagnosticSeverity.WARNING
     )
     assert MyBP.blueprint_fragment() == snapshot(
-        {"check": {"name": "Check", "default": False, "selector": {"boolean": {}}}}
+        {"check": {"name": "Check", "selector": {"boolean": {}}}}
     )
+
 
 def test_simple_bp_object_with_extra_parameter_load():
     class MyBP(BlueprintConfig):
+        blueprint_name = "MyBP"
         check = Boolean(name="Check")
 
     mybp = MyBP(check=True, extra=True)
     diagnostics = mybp.get_load_diagnostics()
-    assert diagnostics == snapshot([])
+    assert diagnostics == snapshot(
+        [
+            DiagnosticMessage(
+                severity=DiagnosticSeverity.WARNING,
+                message="Unused field argument: extra=True",
+            )
+        ]
+    )

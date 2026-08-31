@@ -12,7 +12,7 @@ from .types import MISSING, ParamTypeChk
 class Boolean(FieldItem):
     FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset(
         [
-            ParamTypeChk("default", bool, False),
+            ParamTypeChk("default", bool, MISSING),
         ]
     )
 
