@@ -13,6 +13,7 @@ from blueprint_config import (
 )
 
 
+# I need to teach the YAML dumper how to represent multi-line strings and InputRef objects
 def str_presenter(dumper, data):
     """YAML representer for multi-line strings."""
     if "\n" in data:
