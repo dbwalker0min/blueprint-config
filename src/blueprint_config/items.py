@@ -153,10 +153,10 @@ class InputSection(BlueprintItem):
         assert self._parent_class is not None, "Parent class must not be None"
 
         result = {}
-        if self.name is not None:
+        if self.name:
             result["name"] = self.name
 
-        if self.description is not None:
+        if self.description:
             result["description"] = self.description
 
         # if not emitted, this field defaults to false

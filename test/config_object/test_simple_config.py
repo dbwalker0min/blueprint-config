@@ -1,5 +1,3 @@
-from pprint import pprint
-
 import pytest
 from inline_snapshot import snapshot
 
@@ -8,10 +6,7 @@ from blueprint_config import (
     Boolean,
     DiagnosticMessage,
     DiagnosticSeverity,
-    InputRef,
 )
-
-from blueprint_config import InputRef, dump_yaml
 
 
 def test_simple_config_object_empty():
@@ -53,7 +48,7 @@ def test_simple_bp_object_minimal():
     assert len(MyBP.get_build_diagnostics()) == 0
 
     # It's easier to see in yaml
-    assert dump_yaml(MyBP.build_blueprint()) == snapshot("""\
+    assert MyBP.build_blueprint() == snapshot("""\
 blueprint:
   domain: script
   name: MyBP
@@ -89,7 +84,7 @@ def test_simple_bp_object_with_author_and_description():
 
     assert len(MyBP.get_build_diagnostics()) == 0
     bp = MyBP.build_blueprint()
-    assert dump_yaml(bp) == snapshot(
+    assert bp == snapshot(
         """\
 blueprint:
   domain: script

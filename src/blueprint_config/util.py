@@ -2,7 +2,7 @@ from typing import Any
 
 import yaml
 
-from blueprint_config import InputRef
+from .types import InputRef
 
 
 class TestDumper(yaml.SafeDumper):

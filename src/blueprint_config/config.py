@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Self
 from .diagnostic import DiagnosticMessage, Diagnostics
 from .items import BlueprintItem, FieldItem, InputSection
 from .types import MISSING, InputRef, ParamTypeChk
+from .util import dump_yaml
 
 
 class BaseConfig(ABC):
@@ -65,7 +66,7 @@ class BaseConfig(ABC):
                     return
 
                 setattr(self, name, field.convert(value, self._load_diag))
-        for f,v  in values.items():
+        for f, v in values.items():
             self._load_diag.warning(f"Unused field argument: {f}={v!r}")
 
     def get_load_diagnostics(self) -> list[DiagnosticMessage]:
@@ -226,7 +227,7 @@ class BlueprintConfig(BaseConfig, register=False):
         return sequence
 
     @classmethod
-    def build_blueprint(cls) -> dict[str, Any]:
+    def build_blueprint(cls) -> str:
         result: dict[str, Any] = {}
 
         blueprint = {"domain": "script"}
@@ -250,7 +251,7 @@ class BlueprintConfig(BaseConfig, register=False):
         result["sequence"] = cls._generate_blueprint_sequence()
 
         result["mode"] = "single"
-        return result
+        return dump_yaml(result)
 
 
 class EmbeddedObject(BaseConfig, register=False):
