@@ -119,7 +119,8 @@ class BaseConfig(ABC):
         result = {}
 
         for name, item in cls.blueprint_items().items():
-            result[name] = cls.render_field(item)
+            if not getattr(item, "section", None):
+                result[name] = cls.render_field(item)
 
         return result
 

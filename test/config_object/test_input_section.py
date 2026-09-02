@@ -13,4 +13,5 @@ def test_input_section():
 
     bp = MyInputSection.build_blueprint()
     print(bp)
+    pprint(MyInputSection.get_build_diagnostics())
     assert False

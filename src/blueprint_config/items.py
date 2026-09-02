@@ -122,8 +122,20 @@ class BlueprintItem(ABC):
             self.__class__.FIELD_PARAM_TYPE_CHECKS
             | BlueprintItem.FIELD_PARAM_TYPE_CHECKS
         )
+        # If the class is under a BlueprintConfig, then there can
+        # be a `section` argument. It must be an InputSection instance.
+        from .config import BlueprintConfig
+
+        if issubclass(self._parent_class, BlueprintConfig):
+            type_checking |= frozenset(
+                [
+                    ParamTypeChk("section", InputSection, None),
+                ]
+            )
+
         for parameter_chk in type_checking:
             self._consume_arg(parameter_chk)
+
 
         # Check for any remaining unused field arguments
         # Give a warning because the parameter will be ignored
