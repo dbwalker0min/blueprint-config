@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing_extensions import Never
 
 import inspect
 from abc import ABC, abstractmethod
@@ -53,14 +54,12 @@ class BlueprintItem(ABC):
 
     def _consume_arg(
         self,
-        param_chk: ParamTypeChk,
-        convert: Callable[[Any], Any] | None = None,
+        param_chk: ParamTypeChk
     ):
         """Consume a field argument, performing type checking and conversion if necessary.
 
         Args:
             parameter_chk (ParamTypeChk): The parameter type check information.
-            convert (Callable[[Any], Any] | None): Optional conversion function to apply to the value.
         """
         if self._validate_diagnostics is None:
             raise RuntimeError(
@@ -69,19 +68,38 @@ class BlueprintItem(ABC):
 
         value = self._field_args.pop(param_chk.param, MISSING)
 
+        msg_header = f"From field {self._field_name!r}"
+        msg = ''
+
         value_type = type(value)
         if value is MISSING:
             value = param_chk.default
         elif param_chk.exp_type is not value_type:
             msg = (
-                f"From field {self._field_name}: "
+                f"{msg_header}: "
                 f"Expected type {param_chk.exp_type.__name__!r}, "
                 f"got type {value_type.__name__!r}"
             )
-            self._validate_diagnostics.error(msg)
             value = param_chk.default
-        elif convert is not None:
-            value = convert(value)
+        elif param_chk.converter is not None:
+            value = param_chk.converter(value)
+        elif v := param_chk.validator is not None:
+            if isinstance(v, list):
+                if value not in v:
+                    msg = (
+                        f"{msg_header}: "
+                        f"value {value!r} not in list {v!r}"
+                    )
+            elif callable(v):
+                try:
+                    if not v(value):
+                        msg = "{msg_header}: Invalid value {value!r}"
+                except ValueError as exc:
+                    msg = f"{msg_header}: {exc}"
+                        
+
+
+        self._validate_diagnostics.error(msg) if msg else None
 
         # Set the value of the attribute and mark it as a valid field
         setattr(self, param_chk.param, value)
@@ -165,15 +183,19 @@ class InputSection(BlueprintItem):
         assert self._parent_class is not None, "Parent class must not be None"
 
         result = {}
-        if self.name:
-            result["name"] = self.name
 
-        if self.description:
-            result["description"] = self.description
+        # This is a special case
+        # Do not render the variables at this level.
+        # They are rendered in the level above
+        # if self.name:
+        #     result["name"] = self.name
 
-        # if not emitted, this field defaults to false
-        if self.collapsed:
-            result["collapsed"] = True
+        # if self.description:
+        #     result["description"] = self.description
+
+        # # if not emitted, this field defaults to false
+        # if self.collapsed:
+        #     result["collapsed"] = True
 
         inputs = {}
 

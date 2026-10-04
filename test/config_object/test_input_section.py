@@ -7,9 +7,9 @@ def test_input_section():
     class MyInputSection(BlueprintConfig):
         blueprint_name = "my_input_section"
 
-        input_section = InputSection(name='Options')
+        input_section = InputSection(name='Options', icon='asdf')
 
-        check = Boolean(name="Check", section=input_section)
+        check = Boolean(name="Check", section=input_section, description='test')
 
     bp = MyInputSection.build_blueprint()
     print(bp)

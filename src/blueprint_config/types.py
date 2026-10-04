@@ -27,6 +27,7 @@ class ParamTypeChk(NamedTuple):
     exp_type: type
     default: Any
     converter: Callable[[Any], Any] | None = None
+    validator: list | Callable[[Any], Any] | None = None
 
 
 class InputRef(str):

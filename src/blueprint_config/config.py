@@ -196,7 +196,7 @@ class BlueprintConfig(BaseConfig, register=False):
         result = {}
 
         if v := getattr(field, "name", None):
-            result["name"] = v
+                result["name"] = v
 
         if v := getattr(field, "description", None):
             result["description"] = v
@@ -204,7 +204,18 @@ class BlueprintConfig(BaseConfig, register=False):
         if (v := getattr(field, "default", MISSING)) is not MISSING:
             result["default"] = v
 
-        result["selector"] = field.selector()
+        if isinstance(field, InputSection):
+            if v := getattr(field, "icon", ""):
+                result["icon"] = v
+
+            if v := getattr(field, "collapsed", ""):
+                result["collapsed"] = v
+
+        section = field.selector()
+        if isinstance(field, InputSection):
+            result["input"] = section
+        else:
+            result["selector"] = section
         return result
 
     @classmethod

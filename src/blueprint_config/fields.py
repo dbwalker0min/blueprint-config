@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import Any, Literal
 
 from .config import BlueprintConfig
 from .diagnostic import Diagnostics
@@ -90,10 +90,34 @@ class Object(FieldItem):
         if getattr(self, "multiple", False):
             obj["multiple"] = True
 
-        if getattr(self, "label_field", MISSING) is not MISSING:
-            obj["label_field"] = getattr(self, "label_field", '')
+        if v := getattr(self, "label_field", MISSING) is not MISSING:
+            obj["label_field"] = v
 
-        if getattr(self, "description_field", MISSING) is not MISSING:
-            obj["description_field"] = getattr(self, "description_field")
+        if v := getattr(self, "description_field", MISSING) is not MISSING:
+            obj["description_field"] = v
 
         return {"object": obj}
+
+class Number(FieldItem):
+    FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset(
+        [
+            ParamTypeChk("min", float, MISSING),
+            ParamTypeChk("max", float, MISSING),
+            ParamTypeChk("step", float, MISSING),
+            ParamTypeChk("unit_of_measurement", str, ""),
+            ParamTypeChk(
+                "mode", 
+                str,
+                MISSING, 
+                validator=['box', 'slider']
+            )
+        ]
+    )
+    def selector(self) -> dict:
+        number = {}
+
+        for p in [n.param for n in self.FIELD_PARAM_TYPE_CHECKS]:
+            if v := getattr(self, p, MISSING) is not MISSING:
+                number[p] = v
+
+        return number
