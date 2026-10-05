@@ -68,7 +68,6 @@ def test_selector_options_survive_yaml_serialization():
             step=0.5,
             unit_of_measurement="%",
             mode="slider",
-            translation_key="level",
         )
     )
     assert config_type.get_build_diagnostics() == []
@@ -84,7 +83,6 @@ def test_selector_options_survive_yaml_serialization():
                     "step": 0.5,
                     "unit_of_measurement": "%",
                     "mode": "slider",
-                    "translation_key": "level",
                 }
             },
         }
@@ -116,7 +114,6 @@ def test_any_step_and_box_mode():
         {"step": True},
         {"mode": "dial"},
         {"unit_of_measurement": 1},
-        {"translation_key": 2},
     ],
 )
 def test_bad_declaration_values_produce_diagnostics(kwargs):

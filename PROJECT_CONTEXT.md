@@ -1,6 +1,6 @@
 # Project context: blueprint-config
 
-Last inspected: 2026-10-04. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. The latest change implements explicit typed Boolean and Number constructors and focused selector tests.
+Last inspected: 2026-10-04. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes implement explicit typed Boolean and Number constructors, omit ineffective blueprint translation keys, and make these handoff instructions portable across checkouts.
 
 ## Goal
 
@@ -10,12 +10,13 @@ The broader design includes a supervisor that installs generated blueprints, eva
 
 ## Workspace and source of truth
 
-- Code repository: `/Users/davidwalker/VSCode/Python/blueprint-config`.
-- Companion ChatGPT workspace: `/Users/davidwalker/Documents/ChatGPT/Pyscript Blueprint Configuration`.
-- The companion workspace was an empty Git working tree before these handoff files were added. Do not mistake it for the source checkout or scaffold a second implementation there.
-- Read `agent.md` for working instructions. `AGENTS.md` is a discovery entry point.
-- Repository HEAD at inspection: `b0d09c5` (`Started adding numeric selector`).
-- Pre-existing untracked content: `docs/example.md`. It was read and left unchanged.
+- The source of truth is **this repository checkout**, identified by `pyproject.toml` and `src/blueprint_config/`. Its absolute location may differ across machines and worktrees.
+- All local file references in these root-level handoff documents are relative to the repository root.
+- Read [agent.md](agent.md) for working instructions; [AGENTS.md](AGENTS.md) is the discovery entry point.
+- A separate conversation workspace was used during initial development. It is optional, is not the source checkout, and is not required on another machine. Do not scaffold a duplicate implementation there.
+- Initial inspection baseline: commit `b0d09c5` (`Started adding numeric selector`). This is historical provenance, not the current HEAD; inspect Git for the current state.
+- [docs/example.md](docs/example.md) was a pre-existing untracked draft at initial inspection and was left unchanged. Check current Git status rather than assuming it is still untracked.
+- On each machine, run `uv sync --dev` in the repository root to recreate the development environment. Do not transfer `.venv` between operating systems. Use the `uv run` commands below; no platform-specific environment activation or executable path is needed.
 
 ## What the code actually does
 
@@ -27,18 +28,18 @@ There is no `attrs` dependency or frozen configuration implementation in this ch
 
 | File | Current responsibility/status |
 | --- | --- |
-| `src/blueprint_config/config.py` | `BaseConfig` registration, declaration inspection, construction, diagnostics, `from_dict`; `BlueprintConfig` metadata/YAML generation; `EmbeddedObject` rendering. |
-| `src/blueprint_config/items.py` | `BlueprintItem`, `FieldItem`, argument consumption and validation, `InputSection` grouping. |
-| `src/blueprint_config/fields.py` | `Boolean` and `Number` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
-| `src/blueprint_config/diagnostic.py` | Severity-filtered diagnostics and a context-manager path mechanism. |
-| `src/blueprint_config/types.py` | `MISSING`, `Status`, `ParamTypeChk`, `InputRef`. |
-| `src/blueprint_config/util.py` | PyYAML dumper preserving field order, multiline strings, and `!input` references. |
-| `bathroom_fan_lights.yaml` | Hand-authored script blueprint example: light/occupancy/scene entities and day start/end times; returns a mapping. |
-| `test/` | pytest and inline-snapshot prototype tests; partly out of sync with current source. |
-| `test/config_object/REQUIREMENTS.md` | Partial behavioral requirements; unfinished entries and duplicate IDs. |
-| `blueprint-config-design.md` | Historical v0.6 design, revised 2026-08-17; valuable rationale but not the current implementation specification. |
-| `docs/example.md` | Pre-existing short introductory draft. |
-| `pyproject.toml` | Python >=3.14, PyYAML runtime dependency, uv build system, pytest/inline-snapshot/Ruff development tools. |
+| [src/blueprint_config/config.py](src/blueprint_config/config.py) | `BaseConfig` registration, declaration inspection, construction, diagnostics, `from_dict`; `BlueprintConfig` metadata/YAML generation; `EmbeddedObject` rendering. |
+| [src/blueprint_config/items.py](src/blueprint_config/items.py) | `BlueprintItem`, `FieldItem`, argument consumption and validation, `InputSection` grouping. |
+| [src/blueprint_config/fields.py](src/blueprint_config/fields.py) | `Boolean` and `Number` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
+| [src/blueprint_config/diagnostic.py](src/blueprint_config/diagnostic.py) | Severity-filtered diagnostics and a context-manager path mechanism. |
+| [src/blueprint_config/types.py](src/blueprint_config/types.py) | `MISSING`, `Status`, `ParamTypeChk`, `InputRef`. |
+| [src/blueprint_config/util.py](src/blueprint_config/util.py) | PyYAML dumper preserving field order, multiline strings, and `!input` references. |
+| [bathroom_fan_lights.yaml](bathroom_fan_lights.yaml) | Hand-authored script blueprint example: light/occupancy/scene entities and day start/end times; returns a mapping. |
+| [test/](test/) | pytest and inline-snapshot prototype tests; partly out of sync with current source. |
+| [test/config_object/REQUIREMENTS.md](test/config_object/REQUIREMENTS.md) | Partial behavioral requirements; unfinished entries and duplicate IDs. |
+| [blueprint-config-design.md](blueprint-config-design.md) | Historical v0.6 design, revised 2026-08-17; valuable rationale but not the current implementation specification. |
+| [docs/example.md](docs/example.md) | Pre-existing short introductory draft. |
+| [pyproject.toml](pyproject.toml) | Python >=3.14, PyYAML runtime dependency, uv build system, pytest/inline-snapshot/Ruff development tools. |
 
 Not implemented in this checkout: Home Assistant script discovery/execution, configuration-specific runtime loaders, supervisor services/cache, blueprint file installation, script/app reload coordination, multi-instance runtime loading, or a working CLI entry function. The declared `blueprint-config = "blueprint_config:main"` entry point has no corresponding `main` in the package.
 
@@ -46,27 +47,29 @@ Not implemented in this checkout: Home Assistant script discovery/execution, con
 
 ## Verified baseline and source-review findings
 
-Command run from the code repository on 2026-10-04:
+The verification baseline below was obtained on macOS on 2026-10-04 using the existing virtual environment. The equivalent portable command, run from the repository root, is:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider
+uv run python -B -m pytest -q -p no:cacheprovider
 ```
 
-Current result: **57 passed, 7 failed**, exit status 1. The original four collection errors caused by Number's unhashable validator are fixed. Remaining failures are the input-section placeholder, five obsolete diagnostic tests, and unfinished Object argument handling.
+Last full-suite result before translation_key removal: **57 passed, 7 failed**, exit status 1. The original four collection errors caused by Number's unhashable validator are fixed. Remaining failures are the input-section placeholder, five obsolete diagnostic tests, and unfinished Object argument handling.
 
-Focused run:
+Equivalent portable command for the focused run:
 
 ```sh
-.venv/bin/python -m pytest -q -p no:cacheprovider test/fields/test_boolean.py test/fields/test_number.py test/config_object/test_simple_config.py
+uv run python -B -m pytest -q -p no:cacheprovider test/fields/test_boolean.py test/fields/test_number.py test/config_object/test_simple_config.py
 ```
 
-Result: **56 passed**. Ruff checks pass for `src` and `test`. No static type checker or live IDE completion test has been run; tests verify public constructor signatures and resolvable annotations.
+After translation_key removal: **55 passed** (its obsolete validation case was removed). Ruff checks pass for `src` and `test`. Windows execution has not been verified. No static type checker or live IDE completion test has been run; tests verify public constructor signatures and resolvable annotations.
 
 ### Typed selector API decision (2026-10-04)
 
 The user authorized explicit typed selector classes, accepting repeated public declarations while sharing behavior. Boolean and Number now expose keyword-only constructor parameters rather than accepting arbitrary keyword arguments. Unknown keywords raise TypeError immediately; invalid declared values still produce build diagnostics when the owning configuration class is created. Selectors are still bound/validated by configuration class creation before conversion/rendering uses their options.
 
-Number supports min/max, positive numeric step or `"any"`, unit_of_measurement, mode (`"box"`/`"slider"`), and translation_key. Omitted options remain omitted so HA supplies its defaults. Numeric annotations use `float`, which permits integer arguments under Python typing; runtime checks accept int/float and reject bool. Number conversion returns float. Boolean preserves explicit False. Both share default/None resolution: an explicit non-None value wins, then the declared default, then allow_none; otherwise conversion records an error and raises ValueError. MISSING is distinct from None; `default=None` is invalid (use allow_none=True).
+Number supports min/max, positive numeric step or `"any"`, unit_of_measurement, and mode (`"box"`/`"slider"`). Omitted options remain omitted so HA supplies its defaults. Numeric annotations use `float`, which permits integer arguments under Python typing; runtime checks accept int/float and reject bool. Number conversion returns float. Boolean preserves explicit False. Both share default/None resolution: an explicit non-None value wins, then the declared default, then allow_none; otherwise conversion records an error and raises ValueError. MISSING is distinct from None; `default=None` is invalid (use allow_none=True).
+
+The user subsequently requested removal of `translation_key`. Although Home Assistant supports this option in integration contexts, it is useless for this library's standard blueprint editor: that editor supplies no selector translation lookup, and blueprint names/descriptions remain literal. The option is omitted from the constructor, declaration checks, and YAML rendering; use literal unit labels. See the [blueprint editor source](https://github.com/home-assistant/frontend/blob/dev/src/panels/config/blueprint/blueprint-generic-editor.ts). Do not reintroduce it solely to mirror the general selector schema.
 
 `Missing` and `MISSING` are exported, and the package has a `py.typed` marker. Constructor typing is implemented; typed descriptors for configuration-instance attribute inference remain future work. Generic declaration validation now supports multiple exact numeric types and immutable choice tuples. Existing Boolean tests were updated to the current binding/diagnostic API; the former unknown-keyword warning test now checks TypeError. Historical snapshots were not regenerated.
 
@@ -86,11 +89,11 @@ These are investigation starting points, not authorization to fix all of them du
 
 ## Design history and how to interpret it
 
-The user provided three exported chats. They include proposals, corrections, working experiments, and references to attachments that are not themselves reproduced as complete source files in the PDFs. Do not claim the old runtime is in this repository merely because the chats discuss working code.
+The user provided three exported chats as external PDFs. They are not checked into this repository; the summaries below provide the handoff context without requiring the original files. If exact historical excerpts are needed, ask the user for the named document rather than assuming it exists on the current machine. They include proposals, corrections, working experiments, and references to attachments that are not themselves reproduced as complete source files in the PDFs. Do not claim the old runtime is in this repository merely because the chats discuss working code.
 
 ### Initial configuration design (August 11 onward)
 
-Source: `/Users/davidwalker/Downloads/PyScript Configuration Blueprint.pdf` (274 pages).
+External source: `PyScript Configuration Blueprint.pdf` (274 pages).
 
 The discussion moved from Python declarations toward native YAML as the canonical schema, with generated concrete frozen `attrs` classes. It established script responses instead of a custom event response protocol, discovery by blueprint identity, nested/repeated data, time/duration conversion, Jupyter completion, and application-owned defaults.
 
@@ -100,7 +103,7 @@ Some positions changed within this chat: a blanket assumption that HA validates 
 
 ### Pyscript implementation lessons (August 20 onward)
 
-Source: `/Users/davidwalker/Downloads/Write PyScript Blueprint Structure.pdf` (62 pages).
+External source: `Write PyScript Blueprint Structure.pdf` (62 pages).
 
 Testing exposed problems with interpreted classmethods and cross-module inheritance. The later API used ordinary frozen attrs classes, a blueprint-path class attribute, generic module functions, and a configuration-specific wrapper with a concrete return annotation:
 
@@ -117,7 +120,7 @@ The chats distinguish entity IDs from service names, using registry helpers for 
 
 ### Supervisor design (August 31)
 
-Source: `/Users/davidwalker/Downloads/Blueprint supervisor design.pdf` (13 pages).
+External source: `Blueprint supervisor design.pdf` (13 pages).
 
 The later discussion makes the supervisor the configuration provider:
 

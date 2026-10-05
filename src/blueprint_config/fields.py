@@ -115,6 +115,8 @@ class Number(FieldItem):
     Omitted selector options are left to Home Assistant's defaults. Runtime
     integers and floats become floats; bool and numeric strings are rejected.
     Declaration errors are collected during configuration-class construction.
+    Home Assistant supports translation_key in integration contexts, but it has
+    no effect in the blueprint editor, so this API intentionally omits it.
     """
 
     FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset(
@@ -132,7 +134,6 @@ class Number(FieldItem):
             ),
             ParamTypeChk("unit_of_measurement", str, MISSING),
             ParamTypeChk("mode", str, MISSING, validator=("box", "slider")),
-            ParamTypeChk("translation_key", str, MISSING),
         ]
     )
 
@@ -149,7 +150,6 @@ class Number(FieldItem):
         step: float | Literal["any"] | Missing = MISSING,
         unit_of_measurement: str | Missing = MISSING,
         mode: Literal["box", "slider"] | Missing = MISSING,
-        translation_key: str | Missing = MISSING,
     ) -> None:
         super().__init__(
             name=name,
@@ -161,7 +161,6 @@ class Number(FieldItem):
             step=step,
             unit_of_measurement=unit_of_measurement,
             mode=mode,
-            translation_key=translation_key,
             **({"section": section} if section is not None else {}),
         )
 
@@ -181,7 +180,6 @@ class Number(FieldItem):
             "step",
             "unit_of_measurement",
             "mode",
-            "translation_key",
         ):
             value = getattr(self, parameter, MISSING)
             if value is not MISSING:

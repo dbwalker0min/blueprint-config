@@ -1,6 +1,6 @@
 # Agent working instructions
 
-This is an AI-assisted project. Read `PROJECT_CONTEXT.md` before changing code, then inspect the relevant implementation and tests. This file contains working instructions; the context document contains design history, current status, and unresolved decisions.
+This is an AI-assisted project. Read [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) before changing code, then inspect the relevant implementation and tests. This file contains working instructions; the context document contains design history, current status, and unresolved decisions.
 
 ## Purpose
 
@@ -8,7 +8,7 @@ Help Home Assistant users configure Pyscript automations through script blueprin
 
 ## Start each task
 
-1. Read this file and `PROJECT_CONTEXT.md`.
+1. Read this file and [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 2. Check `git status --short`; preserve existing user changes and untracked files.
 3. Inspect the relevant source and tests. Do not assume the historical design document describes the current API.
 4. Establish which layer the task concerns: Python declaration/generation, value conversion, Home Assistant integration, or the planned supervisor.
@@ -31,14 +31,14 @@ Help Home Assistant users configure Pyscript automations through script blueprin
 
 The package specifies Python >=3.14 and uses uv, pytest, inline-snapshot, and Ruff. Tests are in `test/` (singular).
 
-From the repository root, use the existing environment when available:
+Run commands from this checkout's repository root. These commands work in both PowerShell and POSIX shells:
 
 ```sh
-.venv/bin/python -m pytest -q -p no:cacheprovider
-.venv/bin/ruff check src test
+uv run python -m pytest -q -p no:cacheprovider
+uv run ruff check src test
 ```
 
-On a new development setup, `uv sync --dev` prepares the declared environment; use `uv run pytest` and `uv run ruff` thereafter. Do not install Home Assistant or change dependencies merely to edit documentation.
+On a new development setup, run `uv sync --dev` to create the local environment. Recreate `.venv` on each machine; do not copy it between operating systems. Do not install Home Assistant or change dependencies merely to edit documentation.
 
 The full suite has known failures outside the typed Boolean/Number work; see `PROJECT_CONTEXT.md`. Report pre-existing failures separately from regressions. Do not update snapshots blindly: the current snapshots already encode some unfinished output. For behavior changes, test observable contracts and generated structure, including comparison with real Home Assistant requirements where relevant. Do not add tests solely for prose edits.
 
@@ -47,5 +47,7 @@ The full suite has known failures outside the typed Boolean/Number work; see `PR
 - Update `PROJECT_CONTEXT.md` when implementation status, architecture, important decisions, or the verification baseline changes.
 - Record what is implemented, what was tested, what remains uncertain, and the next useful step. Do not report a proposal as completed work.
 - Keep this file focused on durable working instructions; keep task history and technical status in the context document.
-- The repository documents are authoritative for handoff. The companion ChatGPT workspace contains pointers, not duplicate copies.
+- Keep repository file references relative to the repository root (these handoff documents live there). Do not hard-code a user home directory, drive letter, or checkout location.
+- The repository documents are authoritative for handoff. Any companion conversation workspace is optional and machine-local; its pointers are not required to work from a clone.
+- Identify external source documents by title and availability instead of inventing repository-relative paths for files that are not checked in.
 - Do not commit, publish, deploy, or operate a live Home Assistant instance unless the task authorizes it.
