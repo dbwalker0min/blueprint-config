@@ -5,36 +5,45 @@ from typing import Any, Literal
 
 from .config import BlueprintConfig
 from .diagnostic import Diagnostics
-from .items import FieldItem
-from .types import MISSING, ParamTypeChk
+from .items import FieldItem, InputSection
+from .types import MISSING, Missing, ParamTypeChk
 
 
 class Boolean(FieldItem):
+    """A toggle input. Arguments are checked when its configuration class is built.
+
+    Unknown keywords raise TypeError at construction. A missing/None runtime value
+    uses the declared default, then allow_none; explicit False is preserved.
+    """
+
     FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset(
-        [
-            ParamTypeChk("default", bool, MISSING),
-        ]
+        [ParamTypeChk("default", bool, MISSING)]
     )
 
-    def convert(self, value: bool | None, diag: Diagnostics):
-        if isinstance(value, bool):
+    def __init__(
+        self,
+        *,
+        name: str = "",
+        description: str = "",
+        default: bool | Missing = MISSING,
+        allow_none: bool = False,
+        section: InputSection | None = None,
+    ) -> None:
+        super().__init__(
+            name=name,
+            description=description,
+            default=default,
+            allow_none=allow_none,
+            **({"section": section} if section is not None else {}),
+        )
+
+    def convert(self, value: bool | None, diag: Diagnostics) -> bool | None:
+        value = self._resolve_none(value, diag)
+        if value is None or isinstance(value, bool):
             return value
-
-        if value is None:
-            if v := getattr(self, "default", MISSING) is not MISSING:
-                return v
-
-            if v := getattr(self, "allow_none", False):
-                return None
-
-            diag.error(
-                "No value provided for Boolean field with no default and 'allow_none' false"
-            )
-
-        # This shouldn't happen, as all cases should be handled above.
         raise TypeError(f"Value of Boolean is not boolean or None {value!r}")
 
-    def selector(self) -> dict:
+    def selector(self) -> dict[str, Any]:
         return {"boolean": {}}
 
 
@@ -57,6 +66,7 @@ class Object(FieldItem):
             ParamTypeChk("description_field", str, ""),
         ]
     )
+
     def convert(self, value: Any, diag: Diagnostics):
         # This would occur if there were an error during parsing
         if self._parent_class is None or (
@@ -98,26 +108,82 @@ class Object(FieldItem):
 
         return {"object": obj}
 
+
 class Number(FieldItem):
+    """A numeric input with explicit Home Assistant selector options.
+
+    Omitted selector options are left to Home Assistant's defaults. Runtime
+    integers and floats become floats; bool and numeric strings are rejected.
+    Declaration errors are collected during configuration-class construction.
+    """
+
     FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset(
         [
-            ParamTypeChk("min", float, MISSING),
-            ParamTypeChk("max", float, MISSING),
-            ParamTypeChk("step", float, MISSING),
-            ParamTypeChk("unit_of_measurement", str, ""),
+            ParamTypeChk("default", (int, float), MISSING),
+            ParamTypeChk("min", (int, float), MISSING),
+            ParamTypeChk("max", (int, float), MISSING),
             ParamTypeChk(
-                "mode", 
-                str,
-                MISSING, 
-                validator=['box', 'slider']
-            )
+                "step",
+                (int, float, str),
+                MISSING,
+                validator=lambda value: (
+                    value == "any" or (type(value) in (int, float) and value > 0)
+                ),
+            ),
+            ParamTypeChk("unit_of_measurement", str, MISSING),
+            ParamTypeChk("mode", str, MISSING, validator=("box", "slider")),
+            ParamTypeChk("translation_key", str, MISSING),
         ]
     )
-    def selector(self) -> dict:
+
+    def __init__(
+        self,
+        *,
+        name: str = "",
+        description: str = "",
+        default: float | Missing = MISSING,
+        allow_none: bool = False,
+        section: InputSection | None = None,
+        min: float | Missing = MISSING,
+        max: float | Missing = MISSING,
+        step: float | Literal["any"] | Missing = MISSING,
+        unit_of_measurement: str | Missing = MISSING,
+        mode: Literal["box", "slider"] | Missing = MISSING,
+        translation_key: str | Missing = MISSING,
+    ) -> None:
+        super().__init__(
+            name=name,
+            description=description,
+            default=default,
+            allow_none=allow_none,
+            min=min,
+            max=max,
+            step=step,
+            unit_of_measurement=unit_of_measurement,
+            mode=mode,
+            translation_key=translation_key,
+            **({"section": section} if section is not None else {}),
+        )
+
+    def convert(self, value: float | None, diag: Diagnostics) -> float | None:
+        value = self._resolve_none(value, diag)
+        if value is None:
+            return None
+        if type(value) not in (int, float):
+            raise TypeError(f"Value of Number is not numeric or None {value!r}")
+        return float(value)
+
+    def selector(self) -> dict[str, Any]:
         number = {}
-
-        for p in [n.param for n in self.FIELD_PARAM_TYPE_CHECKS]:
-            if v := getattr(self, p, MISSING) is not MISSING:
-                number[p] = v
-
-        return number
+        for parameter in (
+            "min",
+            "max",
+            "step",
+            "unit_of_measurement",
+            "mode",
+            "translation_key",
+        ):
+            value = getattr(self, parameter, MISSING)
+            if value is not MISSING:
+                number[parameter] = value
+        return {"number": number}

@@ -3,7 +3,7 @@ from enum import Enum, auto
 from typing import Any, NamedTuple
 
 
-class _Missing:
+class Missing:
     """This is a sentinel value to indicate that a field has no default value"""
 
     __slots__ = ()
@@ -19,15 +19,15 @@ class Status(Enum):
     INVALID = auto()
 
 
-MISSING = _Missing()
+MISSING = Missing()
 
 
 class ParamTypeChk(NamedTuple):
     param: str
-    exp_type: type
+    exp_type: type | tuple[type, ...]
     default: Any
     converter: Callable[[Any], Any] | None = None
-    validator: list | Callable[[Any], Any] | None = None
+    validator: tuple[Any, ...] | Callable[[Any], Any] | None = None
 
 
 class InputRef(str):

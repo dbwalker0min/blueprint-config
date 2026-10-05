@@ -1,227 +1,102 @@
 import pytest
-from inline_snapshot import snapshot
 
-from blueprint_config import Boolean, Diagnostics
+from blueprint_config import BlueprintConfig, Boolean, Diagnostics, EmbeddedObject
 
 
-def test_simple_boolean_field():
-    b = Boolean()
+def bind(field):
+    class Config(BlueprintConfig):
+        blueprint_name = "Boolean example"
+        enabled = field
 
-    d = Diagnostics()
-    b.validate(None, "test_field", d)
-    diagnostics = d.diagnostics
-    print(diagnostics)
-    assert len(diagnostics) == 0
+    return Config
 
-    # Testing that the convert method works correctly for True and False
-    assert b.convert(True, d) is True
-    assert b.convert(False, d) is False
 
-    # Testing that None with no default raises a ValueError
-    with pytest.raises(ValueError) as excinfo:
-        b.convert(None, d)
-    assert str(excinfo.value) == snapshot(
-        "Boolean field has no default and no value was provided"
+@pytest.mark.parametrize("value", [True, False])
+def test_boolean_value(value):
+    config_type = bind(Boolean())
+    config = config_type(enabled=value)
+    assert config.enabled is value
+    assert config.get_load_diagnostics() == []
+    assert config_type.get_build_diagnostics() == []
+
+
+@pytest.mark.parametrize("default", [True, False])
+def test_default_applies_to_missing_or_none_but_not_explicit_value(default):
+    config_type = bind(Boolean(default=default, allow_none=True))
+    assert config_type().enabled is default
+    assert config_type(enabled=None).enabled is default
+    assert config_type(enabled=not default).enabled is not default
+    assert config_type.blueprint_fragment()["enabled"]["default"] is default
+
+
+def test_optional_and_required_values():
+    config_type = bind(Boolean(allow_none=True))
+    assert config_type().enabled is None
+    assert config_type(enabled=None).enabled is None
+    required = bind(Boolean())
+    assert required().get_load_diagnostics()[0].context == ".enabled"
+    diag = Diagnostics()
+    with pytest.raises(ValueError, match="no default"):
+        required.enabled.convert(None, diag)
+    assert diag.has_error
+
+
+@pytest.mark.parametrize("value", [0, 1, "false", [], {}])
+def test_reject_nonboolean_runtime_values(value):
+    config_type = bind(Boolean())
+    with pytest.raises(TypeError, match="not boolean"):
+        config_type(enabled=value)
+
+
+def test_blueprint_metadata_and_description():
+    config_type = bind(
+        Boolean(
+            name="Enabled",
+            description="""First line
+            Second line""",
+            default=False,
+        )
     )
+    assert config_type.blueprint_fragment() == {
+        "enabled": {
+            "name": "Enabled",
+            "description": "First line\nSecond line",
+            "default": False,
+            "selector": {"boolean": {}},
+        }
+    }
 
 
-def test_name_given_boolean_field():
-    b = Boolean(name="My boolean")
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-
-def test_name_given_description_field():
-    b = Boolean(
-        name="My boolean",
-        description="""\
-        This is a boolean field
-        This is the second line of the description""",
-    )
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-
-def test_description_single_line():
-    b = Boolean(name="My boolean", description="This is a boolean field")
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-
-def test_description_multiline_first_line_inline():
-    b = Boolean(
-        name="My boolean",
-        description="""This is a boolean field
-        This is the second line of the description""",
-    )
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-
-def test_description_blank_lines():
-    b = Boolean(
-        name="My boolean",
-        description="""This is a boolean field
-
-        This is the second line of the description""",
-    )
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-
-def test_description_blank():
-    b = Boolean(
-        name="My boolean",
-        description="""\
-        """,
-    )
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-
-def test_description_nonstring():
-    b = Boolean(name="My boolean", description=12345)
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"name": 1},
+        {"description": 2},
+        {"default": 1},
+        {"default": None},
+        {"allow_none": "yes"},
+    ],
+)
+def test_bad_declaration_values_produce_build_diagnostics(kwargs):
+    config_type = bind(Boolean(**kwargs))
+    diagnostics = config_type.get_build_diagnostics()
     assert len(diagnostics) == 1
     assert diagnostics[0].severity.name == "ERROR"
-    assert (
-        diagnostics[0].message
-        == "From field 'test_field': Type check failed for parameter 'description' of field 'test_field': expected type str, got type int"
-    )
 
 
-def test_default_missing():
-    b = Boolean(name="My boolean")
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
+def test_unknown_keyword_and_positional_argument_rejected():
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        Boolean(defualt=True)
+    with pytest.raises(TypeError):
+        Boolean("Enabled")
 
 
-def test_default_true():
-    b = Boolean(name="My boolean", default=True)
+def test_boolean_in_embedded_object():
+    class Settings(EmbeddedObject):
+        enabled = Boolean(name="Enabled", default=False)
 
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    print(diagnostics)
-    assert len(diagnostics) == 0
-
-    # Test convert method for True and False
-    assert b.convert(True, d) is True
-    assert b.convert(False, d) is False
-    # Test convert method for None when default is provided
-    assert b.convert(None, d) is True
-
-    # Test convert for None with default
-    assert b.convert(None, d) == True
-
-
-def test_default_false():
-    b = Boolean(name="My boolean", default=False)
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-    # Test convert method for True and False
-    assert b.convert(True, d) is True
-    assert b.convert(False, d) is False
-    # Test convert method for None when default is provided
-    assert b.convert(None, d) is False
-
-
-def test_default_nonboolean():
-    b = Boolean(name="My boolean", default=12345)  # ty:ignore[invalid-argument-type]
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 1
-    assert diagnostics[0].severity.name == "ERROR"
-    assert (
-        diagnostics[0].message
-        == "From field 'test_field': Type check failed for parameter 'default' of field 'test_field': expected type bool, got type int"
-    )
-
-
-def test_with_allow_none_true_and_default_none():
-    b = Boolean(name="My boolean", allow_none=True)
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-    # Test convert method for None when allow_none is True
-    assert b.convert(None, d) is None
-
-
-def test_with_invalid_key():
-
-    b = Boolean(name="My boolean", invalid_key=True)
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 1
-    assert diagnostics[0].severity.name == "ERROR"
-    assert diagnostics[0].message == snapshot(
-        "From field 'test_field': Unknown parameter 'invalid_key'"
-    )
-
-
-def test_with_required_key_set_and_allowed():
-    b = Boolean(name="My boolean", required=True)
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 0
-
-
-def test_with_required_key_set_and_not_allowed():
-    b = Boolean(name="My boolean", required=True)
-
-    d = Diagnostics()
-    b.validate("test_field", d)
-
-    diagnostics = d.diagnostics
-    assert len(diagnostics) == 1
+    assert Settings.get_build_diagnostics() == []
+    assert Settings().enabled is False
+    assert Settings.blueprint_fragment() == {
+        "enabled": {"label": "Enabled", "selector": {"boolean": {}}}
+    }

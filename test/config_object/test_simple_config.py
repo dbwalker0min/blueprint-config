@@ -155,26 +155,9 @@ def test_simple_bp_object_missing_and_default():
 
 
 def test_simple_bp_object_with_extra_parameter():
-    class MyBP(BlueprintConfig):
-        blueprint_name = "MyBP"
-        check = Boolean(name="Check", extra="asdf")
-
-    print(MyBP.get_build_diagnostics())
-    assert len(MyBP.get_build_diagnostics()) == 1
-    assert MyBP.get_build_diagnostics() == snapshot(
-        [
-            DiagnosticMessage(
-                severity=DiagnosticSeverity.WARNING,
-                message="From field check: Unused field argument: extra=asdf",
-            )
-        ]
-    )
-    assert MyBP.get_build_diagnostics()[0].severity == snapshot(
-        DiagnosticSeverity.WARNING
-    )
-    assert MyBP.blueprint_fragment() == snapshot(
-        {"check": {"name": "Check", "selector": {"boolean": {}}}}
-    )
+    # Explicit constructor signatures reject typos instead of silently ignoring them.
+    with pytest.raises(TypeError, match="unexpected keyword argument 'extra'"):
+        Boolean(name="Check", extra="asdf")
 
 
 def test_simple_bp_object_with_extra_parameter_load():

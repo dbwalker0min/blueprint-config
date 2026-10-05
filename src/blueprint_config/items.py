@@ -1,14 +1,12 @@
 from __future__ import annotations
-from typing_extensions import Never
 
 import inspect
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from copy import copy
 from typing import TYPE_CHECKING, Any
 
 from .diagnostic import Diagnostics
-from .types import MISSING, ParamTypeChk, Status
+from .types import MISSING, ParamTypeChk
 
 if TYPE_CHECKING:
     from .config import BaseConfig
@@ -52,10 +50,7 @@ class BlueprintItem(ABC):
         self.collapsed: bool = False
         self.section = None
 
-    def _consume_arg(
-        self,
-        param_chk: ParamTypeChk
-    ):
+    def _consume_arg(self, param_chk: ParamTypeChk):
         """Consume a field argument, performing type checking and conversion if necessary.
 
         Args:
@@ -69,41 +64,46 @@ class BlueprintItem(ABC):
         value = self._field_args.pop(param_chk.param, MISSING)
 
         msg_header = f"From field {self._field_name!r}"
-        msg = ''
+        msg = ""
 
         value_type = type(value)
         if value is MISSING:
             value = param_chk.default
-        elif param_chk.exp_type is not value_type:
+        elif value_type not in (
+            param_chk.exp_type
+            if isinstance(param_chk.exp_type, tuple)
+            else (param_chk.exp_type,)
+        ):
             msg = (
                 f"{msg_header}: "
-                f"Expected type {param_chk.exp_type.__name__!r}, "
+                f"Expected type {self._type_names(param_chk.exp_type)!r}, "
                 f"got type {value_type.__name__!r}"
             )
             value = param_chk.default
         elif param_chk.converter is not None:
             value = param_chk.converter(value)
-        elif v := param_chk.validator is not None:
-            if isinstance(v, list):
+        elif (v := param_chk.validator) is not None:
+            if isinstance(v, tuple):
                 if value not in v:
-                    msg = (
-                        f"{msg_header}: "
-                        f"value {value!r} not in list {v!r}"
-                    )
+                    msg = f"{msg_header}: value {value!r} not in choices {v!r}"
             elif callable(v):
                 try:
                     if not v(value):
-                        msg = "{msg_header}: Invalid value {value!r}"
+                        msg = f"{msg_header}: Invalid value {value!r}"
                 except ValueError as exc:
                     msg = f"{msg_header}: {exc}"
-                        
-
 
         self._validate_diagnostics.error(msg) if msg else None
 
         # Set the value of the attribute and mark it as a valid field
         setattr(self, param_chk.param, value)
         self._valid_fields.add(param_chk.param)
+
+    @staticmethod
+    def _type_names(types: type | tuple[type, ...]) -> str:
+        if isinstance(types, tuple):
+            return " | ".join(t.__name__ for t in types)
+        return types.__name__
 
     def is_valid_field(self, field_name: str) -> bool:
         """Check if a field name is valid for this blueprint item."""
@@ -153,7 +153,6 @@ class BlueprintItem(ABC):
 
         for parameter_chk in type_checking:
             self._consume_arg(parameter_chk)
-
 
         # Check for any remaining unused field arguments
         # Give a warning because the parameter will be ignored
@@ -220,5 +219,21 @@ class FieldItem(BlueprintItem, ABC):
         )
     )
 
+    def _resolve_none(self, value: Any, diag: Diagnostics) -> Any:
+        """Apply a declared default or allow None, without treating false values as absent."""
+        if value is not None:
+            return value
+        default = getattr(self, "default", MISSING)
+        if default is not MISSING:
+            return default
+        if self.allow_none:
+            return None
+        message = (
+            f"No value provided for {type(self).__name__} field "
+            "with no default and 'allow_none' false"
+        )
+        diag.error(message)
+        raise ValueError(message)
+
     @abstractmethod
-    def convert(self, value: Any, diag: Diagnostics) -> Status: ...
+    def convert(self, value: Any, diag: Diagnostics) -> Any: ...

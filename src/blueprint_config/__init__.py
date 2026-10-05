@@ -1,10 +1,11 @@
 from .config import BlueprintConfig, EmbeddedObject, InputSection
 from .diagnostic import DiagnosticMessage, Diagnostics, DiagnosticSeverity
-from .fields import Boolean, Object
-from .types import InputRef
+from .fields import Boolean, Number, Object
+from .types import MISSING, InputRef, Missing
 from .util import dump_yaml
 
 __all__ = [
+    "MISSING",
     "BlueprintConfig",
     "Boolean",
     "DiagnosticMessage",
@@ -13,6 +14,8 @@ __all__ = [
     "EmbeddedObject",
     "InputRef",
     "InputSection",
+    "Missing",
+    "Number",
     "Object",
     "dump_yaml",
 ]
