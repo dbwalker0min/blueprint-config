@@ -9,14 +9,21 @@ Boolean and Number expose explicit keyword-only parameters for editor completion
 ```python
 from blueprint_config import BlueprintConfig, Boolean, Number
 
+
 class FanSettings(BlueprintConfig):
     blueprint_name = "Fan settings"
 
     enabled = Boolean(name="Enabled", default=False)
     speed = Number(
-        name="Speed", default=0, min=0, max=100, step=1,
-        unit_of_measurement="%", mode="slider",
+        name="Speed",
+        default=0,
+        min=0,
+        max=100,
+        step=1,
+        unit_of_measurement="%",
+        mode="slider",
     )
+
 
 settings = FanSettings(enabled=True, speed=25)
 assert settings.enabled is True

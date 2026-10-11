@@ -196,7 +196,7 @@ class BlueprintConfig(BaseConfig, register=False):
         result = {}
 
         if v := getattr(field, "name", None):
-                result["name"] = v
+            result["name"] = v
 
         if v := getattr(field, "description", None):
             result["description"] = v

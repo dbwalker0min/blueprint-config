@@ -1,3 +1,5 @@
+from pprint import pprint
+
 from blueprint_config import BlueprintConfig, Boolean, EmbeddedObject, Object
 
 
@@ -6,7 +8,7 @@ def test_simple_object_field_with_object_type():
         check = Boolean(name="Check")
 
     class MyBpObject(BlueprintConfig):
-        blueprint_name = 'my_blueprint_object'
+        blueprint_name = "my_blueprint_object"
 
         object = Object(
             name="Object",
@@ -19,11 +21,13 @@ def test_simple_object_field_with_object_type():
 
     build_diag_MyConfig = MyConfig.get_build_diagnostics()
     build_diag_MyBpObject = MyBpObject.get_build_diagnostics()
-    print('MyConfig build diagnostics:')
+    print("MyConfig build diagnostics:")
     for d in build_diag_MyConfig:
         print(d)
-    print('MyBpObject build diagnostics:')
+    bp = MyBpObject.build_blueprint()
+    pprint(bp)
     for d in build_diag_MyBpObject:
         print(d)
+    pprint(bp)
     assert len(build_diag_MyConfig) == 0
     assert len(build_diag_MyBpObject) == 0

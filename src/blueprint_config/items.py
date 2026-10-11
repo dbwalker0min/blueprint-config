@@ -203,8 +203,7 @@ class InputSection(BlueprintItem):
             if v.section is self:
                 inputs[f] = self._parent_class.render_field(v)
 
-        result["inputs"] = inputs
-        return result
+        return result | inputs
 
 
 class FieldItem(BlueprintItem, ABC):

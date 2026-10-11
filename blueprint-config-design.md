@@ -271,8 +271,7 @@ Its core API is conceptually:
 ```python
 class ConfigObject:
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> Self:
-        ...
+    def from_mapping(cls, data: Mapping[str, Any]) -> Self: ...
 ```
 
 `from_mapping()` recursively uses the generated attrs field annotations to construct nested `ConfigObject` instances and tuples of them.
@@ -464,8 +463,7 @@ With recursive construction moved to `ConfigObject`, the generic retrieval primi
 ```python
 def load_one(
     blueprint_path: str,
-) -> Mapping[str, Any] | None:
-    ...
+) -> Mapping[str, Any] | None: ...
 ```
 
 Its responsibilities are only:
@@ -646,8 +644,7 @@ def load(
     defaults: Defaults | None = None,
     normalizer: Callable[[Self], Self] | None = None,
     validator: Callable[[Self], None] | None = None,
-) -> Self:
-    ...
+) -> Self: ...
 ```
 
 The processing order is:
@@ -809,8 +806,7 @@ Application code can then write:
 
 ```python
 @event_trigger(*SolarDischargeConfig.change_trigger())
-def on_config_change(**kwargs):
-    ...
+def on_config_change(**kwargs): ...
 ```
 
 The trigger expression checks `domain == 'script'` first so the blueprint lookup is not performed for unrelated service registrations.
