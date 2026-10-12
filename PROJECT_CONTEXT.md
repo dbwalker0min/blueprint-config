@@ -1,6 +1,6 @@
 # Project context: blueprint-config
 
-Last inspected: 2026-10-04. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes implement explicit typed Boolean and Number constructors, omit ineffective blueprint translation keys, and make these handoff instructions portable across checkouts.
+Last inspected: 2026-10-11. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes split selectors into individual modules while preserving their public imports and existing behavior. Boolean and Number retain their explicit typed constructors; Object remains unfinished.
 
 ## Goal
 
@@ -30,7 +30,7 @@ There is no `attrs` dependency or frozen configuration implementation in this ch
 | --- | --- |
 | [src/blueprint_config/config.py](src/blueprint_config/config.py) | `BaseConfig` registration, declaration inspection, construction, diagnostics, `from_dict`; `BlueprintConfig` metadata/YAML generation; `EmbeddedObject` rendering. |
 | [src/blueprint_config/items.py](src/blueprint_config/items.py) | `BlueprintItem`, `FieldItem`, argument consumption and validation, `InputSection` grouping. |
-| [src/blueprint_config/fields.py](src/blueprint_config/fields.py) | `Boolean` and `Number` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
+| [src/blueprint_config/fields/](src/blueprint_config/fields/) | One module per selector (`boolean.py`, `number.py`, `object.py`, `time.py`), re-exported by `fields/__init__.py`. `Boolean` and `Number` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
 | [src/blueprint_config/diagnostic.py](src/blueprint_config/diagnostic.py) | Severity-filtered diagnostics and a context-manager path mechanism. |
 | [src/blueprint_config/types.py](src/blueprint_config/types.py) | `MISSING`, `Status`, `ParamTypeChk`, `InputRef`. |
 | [src/blueprint_config/util.py](src/blueprint_config/util.py) | PyYAML dumper preserving field order, multiline strings, and `!input` references. |
@@ -46,6 +46,16 @@ Not implemented in this checkout: Home Assistant script discovery/execution, con
 `blueprint_path` currently means an absolute filesystem path (if supplied). Generation returns a string; it does not write that path. Historical runtime examples use a relative identity such as `pyscript/bathroom_fan_lights.yaml`; these are different concepts that still need a clear interface.
 
 ## Verified baseline and source-review findings
+
+### Selector module split (2026-10-11)
+
+Replaced `fields.py` with a `fields/` package containing one module per selector. Shared behavior remains in `items.py` and shared types remain in `types.py`. Existing `blueprint_config.fields` selector imports and top-level exports are preserved; `Time` remains available through `blueprint_config.fields` without adding a new top-level export. Selector class bodies are unchanged, including the unfinished Object implementation.
+
+Full-suite results immediately before and after the refactor: **59 passed, 1 failed, 1 error**. The failure is Object's recursive blueprint rendering; the error is a missing inline snapshot in `test_button_diagnostics_simple`. Existing tests required no import or snapshot changes. Ruff passes, and an import smoke check verified all four individual modules and their re-exports. No Home Assistant or Pyscript runtime verification was performed.
+
+### Historical verification (2026-10-04)
+
+The older failures listed below are historical and are superseded by the current test results above.
 
 The verification baseline below was obtained on macOS on 2026-10-04 using the existing virtual environment. The equivalent portable command, run from the repository root, is:
 
