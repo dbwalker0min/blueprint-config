@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from ..diagnostic import Diagnostics
-from ..items import FieldItem, InputSection
+from ..items import FieldItem
 from ..types import MISSING, Missing, ParamTypeChk
+from .input_section import InputSection
 
 
 class Number(FieldItem):
@@ -12,6 +13,9 @@ class Number(FieldItem):
 
     Omitted selector options are left to Home Assistant's defaults. Runtime
     integers and floats become floats; bool and numeric strings are rejected.
+    Bounds are inclusive and apply to defaults as well as supplied values.
+    Slider mode requires both bounds. Numeric steps must be at least 0.001;
+    steps control UI increments, without rounding or restricting multiples.
     Declaration errors are collected during configuration-class construction.
     Home Assistant supports translation_key in integration contexts, but it has
     no effect in the blueprint editor, so this API intentionally omits it.
@@ -27,7 +31,7 @@ class Number(FieldItem):
                 (int, float, str),
                 MISSING,
                 validator=lambda value: (
-                    value == "any" or (type(value) in (int, float) and value > 0)
+                    value == "any" or (type(value) in (int, float) and value >= 0.001)
                 ),
             ),
             ParamTypeChk("unit_of_measurement", str, MISSING),
@@ -62,12 +66,36 @@ class Number(FieldItem):
             **({"section": section} if section is not None else {}),
         )
 
+    def validate(self, parent, field_name: str, diag: Diagnostics | None):
+        super().validate(parent, field_name, diag)
+        assert diag is not None
+        if self.mode == "slider" and (self.min is MISSING or self.max is MISSING):
+            diag.error(
+                f"From field {field_name}: min and max are required in slider mode"
+            )
+        if self.min is not MISSING and self.max is not MISSING and self.min > self.max:
+            diag.error(f"From field {field_name}: min must not exceed max")
+        elif self.default is not MISSING and (
+            message := self._range_error(self.default)
+        ):
+            diag.error(f"From field {field_name}: default {message}")
+
+    def _range_error(self, value: float) -> str | None:
+        if self.min is not MISSING and value < self.min:
+            return f"value {value!r} is below min {self.min!r}"
+        if self.max is not MISSING and value > self.max:
+            return f"value {value!r} is above max {self.max!r}"
+        return None
+
     def convert(self, value: float | None, diag: Diagnostics) -> float | None:
         value = self._resolve_none(value, diag)
         if value is None:
             return None
         if type(value) not in (int, float):
             raise TypeError(f"Value of Number is not numeric or None {value!r}")
+        if message := self._range_error(value):
+            diag.error(message)
+            raise ValueError(message)
         return float(value)
 
     def selector(self) -> dict[str, Any]:

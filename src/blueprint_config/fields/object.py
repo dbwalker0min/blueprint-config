@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..config import EmbeddedObject
 from ..diagnostic import Diagnostics
 from ..items import FieldItem
 from ..types import MISSING, ParamTypeChk
+
+if TYPE_CHECKING:
+    from ..config import EmbeddedObject
 
 
 class Object(FieldItem):
@@ -22,6 +24,8 @@ class Object(FieldItem):
     def _consume_arg(self, param_chk: ParamTypeChk):
         if param_chk.param != "object_type":
             return super()._consume_arg(param_chk)
+
+        from ..config import EmbeddedObject
 
         # Config classes use ABCMeta, so the shared exact-type check is unsuitable.
         object_type = self._field_args.pop("object_type", MISSING)

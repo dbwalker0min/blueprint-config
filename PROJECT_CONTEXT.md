@@ -29,8 +29,8 @@ There is no `attrs` dependency or frozen configuration implementation in this ch
 | File | Current responsibility/status |
 | --- | --- |
 | [src/blueprint_config/config.py](src/blueprint_config/config.py) | `BaseConfig` registration, declaration inspection, construction, diagnostics, `from_dict`; `BlueprintConfig` metadata/YAML generation; `EmbeddedObject` rendering. |
-| [src/blueprint_config/items.py](src/blueprint_config/items.py) | `BlueprintItem`, `FieldItem`, argument consumption and validation, `InputSection` grouping. |
-| [src/blueprint_config/fields/](src/blueprint_config/fields/) | One module per selector (`boolean.py`, `number.py`, `object.py`, `time.py`), re-exported by `fields/__init__.py`. `Boolean` and `Number` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
+| [src/blueprint_config/items.py](src/blueprint_config/items.py) | `BlueprintItem`, `FieldItem`, argument consumption and validation; compatibility import for `InputSection`. |
+| [src/blueprint_config/fields/](src/blueprint_config/fields/) | One module per selector (`boolean.py`, `number.py`, `object.py`, `time.py`), plus `input_section.py` for `InputSection`, re-exported by `fields/__init__.py`. `Boolean` and `Number` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
 | [src/blueprint_config/diagnostic.py](src/blueprint_config/diagnostic.py) | Severity-filtered diagnostics and a context-manager path mechanism. |
 | [src/blueprint_config/types.py](src/blueprint_config/types.py) | `MISSING`, `Status`, `ParamTypeChk`, `InputRef`. |
 | [src/blueprint_config/util.py](src/blueprint_config/util.py) | PyYAML dumper preserving field order, multiline strings, and `!input` references. |
@@ -49,7 +49,33 @@ Not implemented in this checkout: Home Assistant script discovery/execution, con
 
 ### Current verification baseline (2026-10-12)
 
-After the user supplied the missing diagnostic snapshot and Boolean coverage was expanded, the full suite passes: **124 passed**, with no failures or errors. Ruff checks for `src` and `test` also pass. This supersedes the missing-snapshot errors recorded in the historical runs below. Verification used the existing virtual environment; Home Assistant and Pyscript runtime behavior remains unverified.
+After section nesting validation and InputSection coverage were expanded, the full suite passes: **190 passed**, with no failures or errors. Ruff checks for `src` and `test` also pass. This supersedes the missing-snapshot errors recorded in the historical runs below. Verification used the existing virtual environment; Home Assistant and Pyscript runtime behavior remains unverified.
+
+### InputSection nesting validation and test expansion (2026-10-12)
+
+InputSection now records a build ERROR when assigned to another section, naming the nested section. This matches the [HA blueprint schema](https://github.com/home-assistant/core/blob/dev/homeassistant/components/blueprint/schemas.py), which permits only ordinary inputs inside sections. The check runs after all declarations are bound and applies regardless of declaration order or collapsed state. Missing-default checks and custom configuration validation still run. As with other build errors, callers inspect `get_build_diagnostics()`; generation is not changed to raise exceptions.
+
+The dedicated `test/config_object/test_input_section.py` suite now has **30 passing cases**. Added coverage for nesting, combined diagnostics, invalid metadata and section arguments, unknown-argument warnings, omitted/empty metadata, multiline descriptions and collapsed YAML serialization, multiple-section membership and ordering, flat loaded values and input references, and compatibility imports. Full suite: **190 passed**. Ruff and diff whitespace checks pass. No live Home Assistant or Pyscript verification was performed. References to undeclared sections and general declaration inheritance/reuse remain outside this change; full HA schema parity is not claimed.
+
+### Collapsed-section defaults (2026-10-12)
+
+A section with `collapsed=True` now records one build ERROR for each member without a default, naming the input and section. Checks run after all declarations are validated so class attribute order does not affect results. Omitted or false `collapsed` does not require defaults. Explicit `MISSING` and `allow_none=True` without a default do not satisfy the rule; false, zero, and empty collection defaults do. This follows the [HA input section definition](https://www.home-assistant.io/docs/blueprint/schema/#blueprint-input-sections). Errors are available through `get_build_diagnostics()`; blueprint generation retains the existing behavior of not raising for build diagnostics.
+
+Verification: **167 passed**, Ruff and diff whitespace checks pass. Coverage includes both declaration orders, one diagnostic per offending member, unrelated inputs, expanded and empty sections, and false/zero/empty defaults. No live Home Assistant or Pyscript verification was performed.
+
+### InputSection module split (2026-10-12)
+
+Moved `InputSection` into `fields/input_section.py`, exported through `fields` and the package root. It remains a `BlueprintItem`; grouping and generated YAML are unchanged. Imports through `items` and `config` remain compatible. Section type validation resolves the concrete class at validation time, preserving its previous applicability to fields and blueprint items. Object resolves its EmbeddedObject validation dependency locally to avoid the config/fields import cycle.
+
+Verification: **161 passed**; Ruff checks pass. Import smoke checks confirm class identity across new and existing paths and resolvable Boolean/Number section annotations. Used the existing virtual environment because uv could not access its external cache. No Home Assistant or Pyscript runtime verification was performed.
+
+### Number selector validation (2026-10-12)
+
+Number now requires both bounds for explicit slider mode and a numeric step of at least `0.001` (or `"any"`), matching the [HA Number selector implementation](https://github.com/home-assistant/core/blob/dev/homeassistant/helpers/selector.py). Additional library declaration checks reject reversed bounds and defaults outside the inclusive bounds. Conversion checks bounds after default/None resolution, records a diagnostic, and raises `ValueError` for out-of-range values. Step does not round values or constrain them to multiples. Equal bounds remain valid.
+
+The Python contract intentionally retains strict int/float inputs (excluding bool and numeric strings), float outputs, and shared default/allow_none handling. Omitted selector options remain omitted for HA defaults. The earlier translation_key exclusion remains in force. `read_only` is intentionally excluded, not pending implementation: the user tested it in the blueprint editor and reported that it was not enforced. HA documents it for integration data-entry flows, whose form explicitly disables read-only selectors; the blueprint editor does not perform that translation. The user approved excluding it from this library. It was never added to the Number constructor or YAML output. See [Displaying read-only information](https://developers.home-assistant.io/docs/data_entry_flow_index/#displaying-read-only-information) and the [config-flow form implementation](https://github.com/home-assistant/frontend/blob/dev/src/dialogs/config-flow/step-flow-form.ts). Exact general-selector schema parity is not claimed.
+
+Number tests now contain **65 passing cases**, covering slider requirements, optional bounds, inclusive endpoints, equal/reversed ranges, default validation, runtime diagnostics, the step threshold, off-step values, and malformed declarations. Full suite: **161 passed**. Ruff checks and diff whitespace checks pass. README documents the updated contract. No live Home Assistant or Pyscript verification was performed.
 
 ### Boolean selector test expansion (2026-10-12)
 

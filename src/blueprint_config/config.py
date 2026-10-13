@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Any, ClassVar, Self
 
 from .diagnostic import DiagnosticMessage, Diagnostics
-from .items import BlueprintItem, FieldItem, InputSection
+from .fields.input_section import InputSection
+from .items import BlueprintItem, FieldItem
 from .types import MISSING, InputRef, ParamTypeChk
 from .util import dump_yaml
 
@@ -37,6 +38,11 @@ class BaseConfig(ABC):
         # validate the fields and input sections
         for k, v in cls.blueprint_items().items():
             v.validate(cls, k, cls._build_diag)
+
+        # Section checks depend on every member's validated default and section.
+        for item in cls.blueprint_items().values():
+            if isinstance(item, InputSection):
+                item.validate_inputs(cls._build_diag)
 
         # validate myself
         cls.validate_config(cls._build_diag)

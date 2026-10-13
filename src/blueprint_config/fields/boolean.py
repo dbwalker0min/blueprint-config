@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from ..diagnostic import Diagnostics
-from ..items import FieldItem, InputSection
+from ..items import FieldItem
 from ..types import MISSING, Missing, ParamTypeChk
+from .input_section import InputSection
 
 
 class Boolean(FieldItem):

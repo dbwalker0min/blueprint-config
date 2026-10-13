@@ -10,6 +10,7 @@ from .types import MISSING, ParamTypeChk
 
 if TYPE_CHECKING:
     from .config import BaseConfig
+    from .fields.input_section import InputSection as InputSection  # noqa: PLC0414
 
 
 class BlueprintItem(ABC):
@@ -140,11 +141,12 @@ class BlueprintItem(ABC):
             self.__class__.FIELD_PARAM_TYPE_CHECKS
             | BlueprintItem.FIELD_PARAM_TYPE_CHECKS
         )
-        # If the class is under a BlueprintConfig, then there can
-        # be a `section` argument. It must be an InputSection instance.
+        # Fields accept a section; other blueprint items accept one when
+        # declared on a BlueprintConfig. Resolve the concrete type lazily.
         from .config import BlueprintConfig
+        from .fields.input_section import InputSection
 
-        if issubclass(self._parent_class, BlueprintConfig):
+        if isinstance(self, FieldItem) or issubclass(self._parent_class, BlueprintConfig):
             type_checking |= frozenset(
                 [
                     ParamTypeChk("section", InputSection, None),
@@ -168,55 +170,8 @@ class BlueprintItem(ABC):
         """Return a dictionary that uniquely identifies this blueprint item."""
 
 
-class InputSection(BlueprintItem):
-    """This provides a new section in the blueprint"""
-
-    FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset(
-        [
-            ParamTypeChk("icon", str, ""),
-            ParamTypeChk("collapsed", bool, False),
-        ]
-    )
-
-    def selector(self) -> dict[str, Any]:
-        assert self._parent_class is not None, "Parent class must not be None"
-
-        result = {}
-
-        # This is a special case
-        # Do not render the variables at this level.
-        # They are rendered in the level above
-        # if self.name:
-        #     result["name"] = self.name
-
-        # if self.description:
-        #     result["description"] = self.description
-
-        # # if not emitted, this field defaults to false
-        # if self.collapsed:
-        #     result["collapsed"] = True
-
-        inputs = {}
-
-        # Find all the fields that reference this object
-        for f, v in self._parent_class.field_items().items():
-            if v.section is self:
-                inputs[f] = self._parent_class.render_field(v)
-
-        return result | inputs
-
-
 class FieldItem(BlueprintItem, ABC):
     """This is a base class for items that are fields within a blueprint. Fields store data."""
-
-    FIELD_PARAM_TYPE_CHECKS: frozenset[ParamTypeChk] = frozenset(
-        BlueprintItem.FIELD_PARAM_TYPE_CHECKS
-        | frozenset(
-            [
-                ParamTypeChk("section", InputSection, None),
-            ]
-        )
-    )
 
     def _resolve_none(self, value: Any, diag: Diagnostics) -> Any:
         """Apply a declared default or allow None, without treating false values as absent."""
@@ -236,3 +191,12 @@ class FieldItem(BlueprintItem, ABC):
 
     @abstractmethod
     def convert(self, value: Any, diag: Diagnostics) -> Any: ...
+
+
+def __getattr__(name: str):
+    """Preserve the original InputSection import without a module import cycle."""
+    if name == "InputSection":
+        from .fields.input_section import InputSection
+
+        return InputSection
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

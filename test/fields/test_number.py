@@ -111,6 +111,7 @@ def test_any_step_and_box_mode():
         {"step": "small"},
         {"step": 0},
         {"step": -1},
+        {"step": 0.000999},
         {"step": True},
         {"mode": "dial"},
         {"unit_of_measurement": 1},
@@ -149,3 +150,114 @@ def test_public_constructor_has_resolvable_keyword_annotations(selector):
     for name, parameter in signature.parameters.items():
         assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
         assert name in hints
+
+
+@pytest.mark.parametrize("bounds", [{}, {"min": 0}, {"max": 10}])
+def test_slider_requires_both_bounds(bounds):
+    diagnostics = bind(Number(mode="slider", **bounds)).get_build_diagnostics()
+    assert len(diagnostics) == 1
+    assert diagnostics[0].severity.name == "ERROR"
+    assert "min and max are required" in diagnostics[0].message
+
+
+@pytest.mark.parametrize("bounds", [{}, {"min": 0}, {"max": 10}, {"min": 0, "max": 10}])
+@pytest.mark.parametrize("mode", [None, "box"])
+def test_box_and_implicit_mode_allow_optional_bounds(bounds, mode):
+    options = bounds | ({} if mode is None else {"mode": mode})
+    config_type = bind(Number(**options))
+    assert config_type.get_build_diagnostics() == []
+    assert config_type.level.selector() == {"number": options}
+
+
+@pytest.mark.parametrize("mode", ["box", "slider"])
+def test_reversed_bounds_are_declaration_errors(mode):
+    diagnostics = bind(Number(min=1, max=0, mode=mode)).get_build_diagnostics()
+    assert len(diagnostics) == 1
+    assert "min must not exceed max" in diagnostics[0].message
+
+
+@pytest.mark.parametrize("mode", ["box", "slider"])
+def test_equal_bounds_allow_the_single_value(mode):
+    config_type = bind(Number(min=0, max=0, default=0, mode=mode))
+    assert config_type.get_build_diagnostics() == []
+    assert config_type().level == 0.0
+    assert config_type(level=0).level == 0.0
+
+
+@pytest.mark.parametrize("bounds,value", [({"min": 0}, -0.001), ({"max": 0}, 0.001)])
+@pytest.mark.parametrize("allow_none", [False, True])
+def test_out_of_range_defaults_are_declaration_errors(bounds, value, allow_none):
+    config_type = bind(Number(default=value, allow_none=allow_none, **bounds))
+    diagnostics = config_type.get_build_diagnostics()
+    assert len(diagnostics) == 1
+    assert diagnostics[0].severity.name == "ERROR"
+    assert "default value" in diagnostics[0].message
+    # Conversion must also check a default selected by None resolution.
+    diag = Diagnostics()
+    with pytest.raises(ValueError):
+        config_type.level.convert(None, diag)
+    assert diag.has_error
+    with pytest.raises(ValueError):
+        config_type()
+
+
+@pytest.mark.parametrize("mode", ["box", "slider"])
+@pytest.mark.parametrize("value", [-2, 0, 2])
+def test_bounds_are_inclusive_for_defaults_and_values(mode, value):
+    config_type = bind(Number(min=-2, max=2, default=value, mode=mode))
+    assert config_type.get_build_diagnostics() == []
+    assert config_type().level == float(value)
+    assert config_type(level=value).level == float(value)
+    assert config_type(level=None).level == float(value)
+
+
+@pytest.mark.parametrize(
+    "bounds,value,message",
+    [
+        ({"min": 0}, -0.001, "below min"),
+        ({"max": 0}, 0.001, "above max"),
+        ({"min": -1, "max": 1, "mode": "slider"}, 1.001, "above max"),
+    ],
+)
+def test_out_of_range_values_raise_and_record_diagnostics(bounds, value, message):
+    config_type = bind(Number(default=0, allow_none=True, **bounds))
+    diag = Diagnostics()
+    with diag.child("level"), pytest.raises(ValueError, match=message):
+        config_type.level.convert(value, diag)
+    assert len(diag.diagnostics) == 1
+    assert diag.has_error
+    assert diag.diagnostics[0].context == ".level"
+    with pytest.raises(ValueError, match=message):
+        config_type(level=value)
+
+
+@pytest.mark.parametrize("step", [0.001, 0.1, 2, "any"])
+def test_step_does_not_round_or_restrict_value_multiples(step):
+    config_type = bind(Number(min=0, max=10, step=step, default=0.12345))
+    assert config_type.get_build_diagnostics() == []
+    assert config_type().level == 0.12345
+    assert config_type(level=1.23456).level == 1.23456
+    assert (
+        yaml.safe_load(dump_yaml(config_type.level.selector()))["number"]["step"]
+        == step
+    )
+
+
+def test_bounded_optional_number_preserves_none_without_default():
+    config_type = bind(Number(min=0, max=1, allow_none=True))
+    assert config_type().level is None
+    assert config_type(level=None).level is None
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"min": "zero", "max": 1, "default": 0},
+        {"min": 0, "max": "one", "default": 0},
+        {"min": 0, "max": 1, "default": "zero"},
+    ],
+)
+def test_range_checks_do_not_crash_on_invalid_declaration_types(kwargs):
+    diagnostics = bind(Number(**kwargs)).get_build_diagnostics()
+    assert len(diagnostics) == 1
+    assert diagnostics[0].severity.name == "ERROR"
