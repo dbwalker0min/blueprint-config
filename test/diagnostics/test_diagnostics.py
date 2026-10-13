@@ -14,7 +14,7 @@ def test_button_diagnostics_simple():
     diag_list = diagnostics.diagnostics
 
     assert len(diag_list) == 2
-    assert diag_list == snapshot()
+    assert diag_list == snapshot([DiagnosticMessage(severity=DiagnosticSeverity.ERROR, message='This is an error message'), DiagnosticMessage(severity=DiagnosticSeverity.WARNING, message='This is a warning message')])
 
 
 def test_at_level_debug():

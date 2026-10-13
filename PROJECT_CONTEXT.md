@@ -1,6 +1,6 @@
 # Project context: blueprint-config
 
-Last inspected: 2026-10-11. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes split selectors into individual modules while preserving their public imports and existing behavior. Boolean and Number retain their explicit typed constructors; Object remains unfinished.
+Last inspected: 2026-10-12. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes split selectors into individual modules while preserving their public imports and existing behavior. Boolean and Number retain their explicit typed constructors; Object now uses its declared EmbeddedObject type for rendering and conversion.
 
 ## Goal
 
@@ -47,6 +47,26 @@ Not implemented in this checkout: Home Assistant script discovery/execution, con
 
 ## Verified baseline and source-review findings
 
+### Current verification baseline (2026-10-12)
+
+After the user supplied the missing diagnostic snapshot and Boolean coverage was expanded, the full suite passes: **124 passed**, with no failures or errors. Ruff checks for `src` and `test` also pass. This supersedes the missing-snapshot errors recorded in the historical runs below. Verification used the existing virtual environment; Home Assistant and Pyscript runtime behavior remains unverified.
+
+### Boolean selector test expansion (2026-10-12)
+
+Expanded `test/fields/test_boolean.py` from 18 to **38 passing cases**. Added default precedence with both allow_none settings, explicit MISSING defaults, omitted/empty metadata, Boolean defaults through YAML serialization, invalid section and declaration values, invalid runtime values with defaults, actual section rendering/loading, and optional embedded Boolean values. No implementation changes were needed. Full suite: **124 passed**; Ruff and diff whitespace checks pass. Number coverage is unchanged.
+
+### Object selector test expansion (2026-10-12)
+
+Expanded Object coverage from 10 to **45 passing cases**, adding default precedence over allow_none, explicit-value overrides, input/default mutation isolation, empty mapping/list behavior, required-field diagnostic context, invalid declaration options, unknown-option warnings, independent label/description rendering, malformed runtime values, embedded conversion errors, repeated nested objects, and input-section integration. This expansion changes tests only, with no further selector implementation changes.
+
+Full suite: **104 passed, 1 error**. The sole error remains the pre-existing missing inline snapshot in `test_button_diagnostics_simple`; it was not regenerated. Ruff and diff whitespace checks pass. Tests ran through the existing virtual environment. These checks cover the Python generator/converter; live Home Assistant and Pyscript behavior remains unverified. Full Object schema validation and nested diagnostic propagation are still outside this coverage.
+
+### Object selector recursion fix (2026-10-11)
+
+Object now consumes and validates `object_type` as an `EmbeddedObject` subclass, keeping `_parent_class` as the containing class. Rendering and conversion use the embedded type, including nested Object fields. Missing or invalid types produce build diagnostics and raise a clear TypeError if rendering/conversion is attempted. Object defaults (dict/list) are consumed, and None resolution follows the shared default/allow_none behavior. Label and description field names retain their strings instead of becoming booleans; empty options are omitted. The Object test default was corrected to the field's list value rather than an outer configuration mapping.
+
+Verification: **69 passed, 1 error** in the full suite; the remaining error is the pre-existing missing inline snapshot in `test_button_diagnostics_simple`. Ruff passes. Regression coverage includes generated object fields, single/repeated conversion, defaults, False and empty-list preservation, optional values, nested objects, and invalid object types. Used the existing virtual environment directly because uv's external cache was sandbox-inaccessible. No Home Assistant or Pyscript runtime verification was performed. Full Object schema/value validation remains future work.
+
 ### Selector module split (2026-10-11)
 
 Replaced `fields.py` with a `fields/` package containing one module per selector. Shared behavior remains in `items.py` and shared types remain in `types.py`. Existing `blueprint_config.fields` selector imports and top-level exports are preserved; `Time` remains available through `blueprint_config.fields` without adding a new top-level export. Selector class bodies are unchanged, including the unfinished Object implementation.
@@ -91,8 +111,6 @@ Remaining issues (source inspection and the full test run):
 - Diagnostic tests call removed methods or old signatures and use `child()` as though it returns a diagnostics instance rather than a context manager.
 - `_generate_blueprint_sequence()` returns a mapping already containing `sequence`; `build_blueprint()` wraps it under another `sequence`. Existing snapshots preserve this extra nesting, unlike the hand-authored example's sequence list.
 - `InputSection.selector()` returns an `inputs` wrapper, then `render_field()` wraps it under `input`. Check this against the intended section shape before blessing snapshots.
-- Object rendering still has assignment expressions that capture a comparison result instead of the intended value. The corresponding Boolean, Number, and shared validator problems were fixed.
-- `Object` uses the containing `_parent_class` for conversion/rendering instead of consuming the test's `object_type=EmbeddedObjectSubclass` argument; object-field behavior is unfinished.
 - `BaseConfig` field discovery examines the concrete class dictionary, so inherited-field behavior is not established.
 
 These are investigation starting points, not authorization to fix all of them during unrelated work. No Home Assistant instance was contacted, no generated blueprint was loaded into HA, and no Pyscript runtime compatibility was verified.
