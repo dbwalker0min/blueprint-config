@@ -4,7 +4,7 @@ A configuration tool for pyscript based on Home Assistant blueprints.
 
 ## Typed selector declarations
 
-Boolean and Number expose explicit keyword-only parameters for editor completion:
+Boolean, Number, Date, and DateTime expose explicit keyword-only parameters for editor completion:
 
 ```python
 from blueprint_config import BlueprintConfig, Boolean, Number
@@ -60,3 +60,47 @@ See the [blueprint editor implementation](https://github.com/home-assistant/fron
 it. Home Assistant documents this option for [integration data-entry flows](https://developers.home-assistant.io/docs/data_entry_flow_index/#displaying-read-only-information),
 where the surrounding form disables the selector. It is not a supported option
 in this library's blueprint workflow.
+
+## Date and DateTime
+
+```python
+import datetime as dt
+
+from blueprint_config import BlueprintConfig, Date, DateTime
+
+
+class Schedule(BlueprintConfig):
+    blueprint_name = "Schedule"
+
+    day = Date(name="Day", default=dt.date(2026, 10, 13))
+    start = DateTime(name="Start", allow_none=True)
+
+
+schedule = Schedule(start="2026-10-13 09:30:00")
+assert schedule.day == dt.date(2026, 10, 13)
+assert schedule.start == dt.datetime(2026, 10, 13, 9, 30)
+```
+
+Both selectors accept `name`, `description`, `default`, `allow_none`, and
+`section`. They emit `date: {}` and `datetime: {}`, matching the
+[Home Assistant selectors](https://www.home-assistant.io/docs/blueprint/selectors/#date-selector).
+
+`Date` accepts a `YYYY-MM-DD` string or Python `datetime.date` and returns a
+`date`. It rejects `datetime` objects rather than discarding their time.
+`DateTime` accepts Python `datetime.datetime` or a string with a calendar date,
+a space or `T`, and `HH:MM`, optionally followed by seconds and 1–6 fractional
+second digits. Strings may include `Z` or a `±HH:MM` offset (also supporting offset seconds
+and fractions emitted by Python datetime values). Conversion preserves
+supplied offsets and microseconds; values without an offset stay naive. A date
+without a time is rejected, and hours must be in `00–23`.
+
+Defaults accept the same values and are normalized to ISO strings for YAML
+(`YYYY-MM-DD` or `YYYY-MM-DD HH:MM:SS`, retaining fractions/offsets when present).
+Invalid defaults produce build diagnostics and are omitted from generated inputs.
+Missing or `None` values use the default first, then `allow_none`. An empty string
+is invalid, not missing. Invalid runtime types raise `TypeError`; malformed dates
+or times raise `ValueError`; both record a load diagnostic. As with other fields,
+an omitted required value records a load diagnostic during configuration loading.
+
+Tests cover Python conversion and generated inputs. Live Home Assistant/Pyscript
+execution and timezone-aware values in the Home Assistant UI remain unverified.

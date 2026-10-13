@@ -1,6 +1,6 @@
 # Project context: blueprint-config
 
-Last inspected: 2026-10-12. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes split selectors into individual modules while preserving their public imports and existing behavior. Boolean and Number retain their explicit typed constructors; Object now uses its declared EmbeddedObject type for rendering and conversion.
+Last inspected: 2026-10-13. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes split selectors into individual modules while preserving their public imports and existing behavior. Boolean and Number retain their explicit typed constructors; Object now uses its declared EmbeddedObject type for rendering and conversion. Date and DateTime provide typed declarations, Python date/datetime conversion, and string defaults for generated YAML.
 
 ## Goal
 
@@ -30,7 +30,7 @@ There is no `attrs` dependency or frozen configuration implementation in this ch
 | --- | --- |
 | [src/blueprint_config/config.py](src/blueprint_config/config.py) | `BaseConfig` registration, declaration inspection, construction, diagnostics, `from_dict`; `BlueprintConfig` metadata/YAML generation; `EmbeddedObject` rendering. |
 | [src/blueprint_config/items.py](src/blueprint_config/items.py) | `BlueprintItem`, `FieldItem`, argument consumption and validation; compatibility import for `InputSection`. |
-| [src/blueprint_config/fields/](src/blueprint_config/fields/) | One module per selector (`boolean.py`, `number.py`, `object.py`, `time.py`), plus `input_section.py` for `InputSection`, re-exported by `fields/__init__.py`. `Boolean` and `Number` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
+| [src/blueprint_config/fields/](src/blueprint_config/fields/) | One module per selector (`boolean.py`, `date.py`, `datetime.py`, `number.py`, `object.py`, `time.py`), plus `input_section.py` for `InputSection`, re-exported by `fields/__init__.py`. `Boolean`, `Number`, `Date`, and `DateTime` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
 | [src/blueprint_config/diagnostic.py](src/blueprint_config/diagnostic.py) | Severity-filtered diagnostics and a context-manager path mechanism. |
 | [src/blueprint_config/types.py](src/blueprint_config/types.py) | `MISSING`, `Status`, `ParamTypeChk`, `InputRef`. |
 | [src/blueprint_config/util.py](src/blueprint_config/util.py) | PyYAML dumper preserving field order, multiline strings, and `!input` references. |
@@ -47,9 +47,39 @@ Not implemented in this checkout: Home Assistant script discovery/execution, con
 
 ## Verified baseline and source-review findings
 
-### Current verification baseline (2026-10-12)
+### Current verification baseline (2026-10-13)
 
-After section nesting validation and InputSection coverage were expanded, the full suite passes: **190 passed**, with no failures or errors. Ruff checks for `src` and `test` also pass. This supersedes the missing-snapshot errors recorded in the historical runs below. Verification used the existing virtual environment; Home Assistant and Pyscript runtime behavior remains unverified.
+The full suite passes: **270 passed**, including **80 Date/DateTime cases**.
+Ruff checks for `src` and `test` and diff whitespace checks pass. Tests ran with
+`uv run python -m pytest -q -p no:cacheprovider`. This supersedes earlier baselines
+below. Home Assistant and Pyscript runtime behavior remains unverified.
+
+### Date and DateTime selectors (2026-10-13)
+
+Added `fields/date.py` and `fields/datetime.py`, exported through `fields` and the
+package root as `Date` and `DateTime`. Both have explicit keyword-only metadata,
+default, allow_none, and section parameters, with no selector-specific options,
+matching the [HA selector documentation](https://www.home-assistant.io/docs/blueprint/selectors/#date-selector).
+
+Date accepts calendar-date strings (`YYYY-MM-DD`) or Python date values, excluding
+datetime objects. DateTime accepts Python datetime values or calendar-date/time
+strings separated by a space or `T`, with hours/minutes, optional seconds and
+1–6 fractional digits, and optional `Z`/numeric offsets. It rejects date-only
+values and hours outside 00–23. Python 3.14's parser can normalize 24:00 to the next
+day, so the selector explicitly guards against that silent date change.
+Runtime conversion returns date/datetime objects, preserving offsets and
+microseconds without inferring a timezone. Defaults are validated at class build
+and normalized to ISO strings for YAML; invalid defaults produce diagnostics and
+become MISSING. None handling follows the existing default-first convention.
+Malformed runtime values record a diagnostic and raise TypeError/ValueError.
+
+The shared parameterized suite `test/fields/test_date_datetime.py` covers imports,
+constructor signatures, defaults, None/missing values, invalid declarations and
+runtime values, leap dates, formatting, precision/offsets, YAML serialization,
+sections, and embedded objects. README includes usage and the accepted formats.
+No dependencies were added. Live HA/Pyscript execution and timezone-aware values
+in the HA UI were not verified. The existing Time selector and general blueprint
+sequence limitation remain unchanged.
 
 ### InputSection nesting validation and test expansion (2026-10-12)
 
