@@ -17,6 +17,10 @@ class Number(FieldItem):
     Slider mode requires both bounds. Numeric steps must be at least 0.001;
     steps control UI increments, without rounding or restricting multiples.
     Declaration errors are collected during configuration-class construction.
+    Unsupported positional and keyword arguments are ignored and reported as
+    build errors; supported options remain explicit keyword-only parameters.
+    Invalid runtime values record load diagnostics and return MISSING so loading
+    can continue through the remaining fields.
     Home Assistant supports translation_key in integration contexts, but it has
     no effect in the blueprint editor, so this API intentionally omits it.
     """
@@ -41,7 +45,7 @@ class Number(FieldItem):
 
     def __init__(
         self,
-        *,
+        *args: Any,
         name: str = "",
         description: str = "",
         default: float | Missing = MISSING,
@@ -52,7 +56,10 @@ class Number(FieldItem):
         step: float | Literal["any"] | Missing = MISSING,
         unit_of_measurement: str | Missing = MISSING,
         mode: Literal["box", "slider"] | Missing = MISSING,
+        **kwargs: Any,
     ) -> None:
+        self._unexpected_positional_arguments = args
+        self._unexpected_keyword_arguments = kwargs
         super().__init__(
             name=name,
             description=description,
@@ -69,6 +76,16 @@ class Number(FieldItem):
     def validate(self, parent, field_name: str, diag: Diagnostics | None):
         super().validate(parent, field_name, diag)
         assert diag is not None
+        with diag.child(field_name):
+            for index, value in enumerate(
+                self._unexpected_positional_arguments, start=1
+            ):
+                diag.error(
+                    f"Unexpected positional argument {index}={value!r}; "
+                    "Number options must be supplied by keyword"
+                )
+            for name, value in self._unexpected_keyword_arguments.items():
+                diag.error(f"Unexpected keyword argument {name}={value!r} for Number")
         if self.mode == "slider" and (self.min is MISSING or self.max is MISSING):
             diag.error(
                 f"From field {field_name}: min and max are required in slider mode"
@@ -87,15 +104,20 @@ class Number(FieldItem):
             return f"value {value!r} is above max {self.max!r}"
         return None
 
-    def convert(self, value: float | None, diag: Diagnostics) -> float | None:
-        value = self._resolve_none(value, diag)
+    def convert(self, value: float | None, diag: Diagnostics) -> float | None | Missing:
+        try:
+            value = self._resolve_none(value, diag)
+        except ValueError:
+            # The shared resolver has already recorded the missing-value error.
+            return MISSING
         if value is None:
             return None
         if type(value) not in (int, float):
-            raise TypeError(f"Value of Number is not numeric or None {value!r}")
+            diag.error(f"Value of Number is not numeric or None {value!r}")
+            return MISSING
         if message := self._range_error(value):
             diag.error(message)
-            raise ValueError(message)
+            return MISSING
         return float(value)
 
     def selector(self) -> dict[str, Any]:

@@ -38,6 +38,14 @@ uv run python -m pytest -q -p no:cacheprovider
 uv run ruff check src test
 ```
 
+New or behaviorally changed tests require `@pytest.mark.reviewed(False)`;
+only user approval permits True. Preserve existing approval when migrating
+unchanged tests. See PROJECT_CONTEXT.md for the current per-test review pilot.
+For behavioral verification while reviews are pending, run pytest with
+`--allow-unreviewed`. This bypasses only review failures, lists pending reviews,
+and never changes approvals. Do not make this option a pytest default. Report
+behavioral results separately from human review status.
+
 On a new development setup, run `uv sync --dev` to create the local environment. Recreate `.venv` on each machine; do not copy it between operating systems. Do not install Home Assistant or change dependencies merely to edit documentation.
 
 The full suite has known failures outside the typed Boolean/Number work; see `PROJECT_CONTEXT.md`. Report pre-existing failures separately from regressions. Do not update snapshots blindly: the current snapshots already encode some unfinished output. For behavior changes, test observable contracts and generated structure, including comparison with real Home Assistant requirements where relevant. Do not add tests solely for prose edits.

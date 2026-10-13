@@ -39,14 +39,21 @@ Number bounds are inclusive and apply to both defaults and supplied values.
 Declarations require `min <= max` when both bounds are present; explicit
 `mode="slider"` requires both bounds. Numeric `step` must be at least `0.001`.
 Step controls UI increments: values are not rounded or required to be multiples
-of the step. Out-of-range values record a load diagnostic and raise `ValueError`.
+of the step. Invalid Number types, out-of-range values, and required `None`
+values record load errors and produce `MISSING` without raising. Loading also
+continues after omitted required fields, storing `MISSING` for them. Inspect
+`get_load_diagnostics()` after construction to report errors before using the
+configuration. Other selectors still have exception-based conversion paths.
 Python inputs remain strictly integers/floats (excluding booleans and numeric
 strings), and conversion returns a float. Omitted mode and step are left to HA:
 slider with both bounds, box otherwise, and a default step of 1.
 
-Unknown constructor keywords raise `TypeError`; invalid declaration values are
-reported through `get_build_diagnostics()` when the configuration class is
-created. Current typing covers selector constructor arguments, not inference of
+Number reports unsupported positional and keyword arguments as build errors;
+they are ignored, while supported options remain explicit and keyword-only.
+Boolean, Date, and DateTime still raise `TypeError` for unsupported constructor
+arguments. Invalid declaration values are reported through
+`get_build_diagnostics()` when the configuration class is created.
+Current typing covers selector constructor arguments, not inference of
 configuration-instance attributes. Full blueprint generation and other selectors
 still have prototype limitations documented in [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 

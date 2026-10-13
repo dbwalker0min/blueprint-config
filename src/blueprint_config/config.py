@@ -69,7 +69,8 @@ class BaseConfig(ABC):
                     self._load_diag.error(
                         "No value provided for field with no default value and 'allow_none' false"
                     )
-                    return
+                    setattr(self, name, MISSING)
+                    continue
 
                 setattr(self, name, field.convert(value, self._load_diag))
         for f, v in values.items():

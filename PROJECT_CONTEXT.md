@@ -18,6 +18,79 @@ The broader design includes a supervisor that installs generated blueprints, eva
 - [docs/example.md](docs/example.md) was a pre-existing untracked draft at initial inspection and was left unchanged. Check current Git status rather than assuming it is still untracked.
 - On each machine, run `uv sync --dev` in the repository root to recreate the development environment. Do not transfer `.venv` between operating systems. Use the `uv run` commands below; no platform-specific environment activation or executable path is needed.
 
+## Development policies
+
+### Accumulate build and load diagnostics
+
+Building and loading should process all recoverable configuration problems and
+accumulate diagnostics so the caller can report them together. Declaration and
+constructor-argument problems belong in build diagnostics; invalid supplied
+values belong in load diagnostics. Keep useful field paths, continue with later
+fields, and avoid duplicate or cascading errors from a value already rejected.
+Use `MISSING` for an invalid loaded value rather than silently substituting a
+default or an allowed None. Callers inspect diagnostics before using the result.
+Be conservative about exceptions; internal programming errors need not be hidden
+by broad exception handling. This is the intended project-wide policy, not a
+claim that every existing selector already follows it. The exception inventory
+below records remaining work.
+
+### Human review of tests
+
+Every new or changed test must be marked as awaiting human review. Agents must
+reset a previously reviewed test when changing its assertions, inputs,
+parameterization, or other behavior, and flag affected tests when shared test
+helpers or fixtures change their meaning. Only the user, or an explicit user
+confirmation, can mark a test reviewed. Passing an automated run is not review
+approval. Keep the review status visible after approval rather than deleting it.
+
+The per-test mechanism is implemented in `test/conftest.py`:
+
+```python
+@pytest.mark.reviewed(False)
+def test_example():
+    ...  # ordinary behavioral assertions
+```
+
+- The user changes False to True after review; agents reset it to False when
+  changing the test's behavior. Markers must be per-test and take exactly one
+  boolean. Malformed/duplicate markers produce a usage error even with the
+  override, rather than being mistaken for approval.
+- Normal runs execute behavioral checks and turn otherwise passing unreviewed
+  tests into failures with a clear review message. Real failures retain their
+  original details. Selected skipped/xfail tests still appear as pending and
+  prevent a successful exit without the override.
+- `--allow-unreviewed` bypasses only the review requirement. Actual failures
+  still fail, pending reviews remain listed, and source approval flags are never
+  modified by a run. Do not put the override in default pytest options.
+- One function marker covers its parameterized cases; changing the case list
+  resets that function's approval. The pending summary lists selected cases.
+- Pilot scope: `test/fields/test_number.py` and the new infrastructure regression
+  tests in `test/test_review_workflow.py` opt in with the module marker
+  `pytestmark = pytest.mark.review_required`. Missing per-test approval markers
+  count as pending there. Explicit reviewed(False) markers are honored anywhere.
+  Unmigrated modules remain outside enforcement, not implicitly approved.
+- Existing Number tests were migrated to reviewed(True) because the user already
+  approved them with the module checkpoint. Their behavioral assertions were
+  unchanged. The original passing checkpoint is retained as a historical record;
+  individual markers now govern future edits. New infrastructure tests remain
+  reviewed(False), awaiting the user.
+- This relies on agents resetting the marker; automatic detection of edits
+  would require additional tracking and is not implemented.
+
+Run the Number pilot normally:
+
+```sh
+uv run python -m pytest -q -p no:cacheprovider test/fields/test_number.py
+```
+
+Run behavioral verification while reviews are pending:
+
+```sh
+uv run python -m pytest -q -p no:cacheprovider --allow-unreviewed
+```
+
+Pytest supports [custom markers and command-line options](https://docs.pytest.org/en/stable/example/markers.html).
+
 ## What the code actually does
 
 The checkout is an early **Python-to-blueprint generator and configuration-object prototype**. It does not currently implement the earlier YAML-to-generated-attrs runtime design.
@@ -49,10 +122,89 @@ Not implemented in this checkout: Home Assistant script discovery/execution, con
 
 ### Current verification baseline (2026-10-13)
 
-The full suite passes: **270 passed**, including **80 Date/DateTime cases**.
+With `--allow-unreviewed`, the full suite reports **297 passed**. The default
+run reports **281 passed, 16 failed solely for pending review**, all in the six
+new review-workflow test functions. The Number module alone reports **76 passed**
+without an override, preserving the user's approval. Infrastructure regressions
+exercise approved/pending/missing markers, the override, behavioral failure
+preservation, malformed markers, parameterization/selection, skipped tests,
+unmigrated modules, and source approval preservation in isolated pytest processes.
 Ruff checks for `src` and `test` and diff whitespace checks pass. Tests ran with
-`uv run python -m pytest -q -p no:cacheprovider`. This supersedes earlier baselines
+`uv run python -m pytest -q -p no:cacheprovider` with and without the review
+override. This supersedes earlier baselines
 below. Home Assistant and Pyscript runtime behavior remains unverified.
+
+### Number test review checkpoint (2026-10-13)
+
+At the user's request, `test/fields/test_number.py` retains
+`test_number_cases_require_human_review` as a visible review record. The user
+changed `assert False` to `assert True`, confirming review of the current Number
+tests. Preserve the test and this approval; do not delete it. Its original
+message still describes removal, but the user's decision to retain it supersedes
+that wording. Individual reviewed markers now carry approval for each Number test. New or
+changed tests require fresh review under the policy above.
+
+Verification after the user's change: **281 passed**. Earlier failing-checkpoint
+results below are historical.
+
+### Constructor diagnostics and exception policy (2026-10-13)
+
+The user wants classes to be conservative about raising exceptions: recoverable
+declaration problems belong in build diagnostics, and invalid loaded values
+belong in load diagnostics so errors can be reported together. Apply this policy
+to future work; existing exception paths below have not all been migrated.
+
+Number now captures unsupported positional and keyword arguments, ignores them,
+and records one build ERROR per argument under the field context. Positional
+values are not interpreted as bounds. Supported options retain explicit typed
+keyword-only parameters; capturing extras relaxes static detection of unknown
+arguments. Errors are available when the owning configuration class is built.
+Tests cover mixed argument errors, preserved valid options, and continued
+validation of the same and later fields. This supersedes the historical Number
+constructor TypeError contract. Verification: **280 passed, 1 intentionally
+failed** (review checkpoint); Ruff and diff whitespace checks pass.
+
+Remaining exception paths found by source inspection:
+
+- Boolean invalid runtime types; shared required-None resolution (Number catches
+  this internally). Boolean, Date, and DateTime reject unsupported constructor
+  arguments through Python argument binding; generic item constructors reject
+  positional arguments too.
+- Date/DateTime parsing records and re-raises runtime TypeError/ValueError;
+  default parsing already catches these and records build errors.
+- Time lets malformed ISO strings raise from the standard library without a
+  diagnostic. Other unexpected Time input types currently pass through.
+- Object raises for invalid/missing object_type, and malformed mappings/lists
+  or nested conversion errors can escape from from_dict or iteration. Nested
+  object diagnostics are not yet aggregated into the parent's diagnostics.
+- BlueprintConfig raises for non-string metadata, an empty name, and relative
+  blueprint paths; generation also raises for an empty name.
+- Internal guards raise/assert for missing validation diagnostics or parent
+  binding. The items compatibility import raises AttributeError for unknown
+  names, as required by normal module attribute lookup.
+- Library operations can still propagate errors, including float overflow for
+  an enormous Number integer and YAML serialization errors. Python rejects
+  duplicate keyword arguments or invalid ** unpacking before constructors run.
+
+### Number load diagnostics accumulate (2026-10-13)
+
+The user clarified during test review that invalid Number inputs should record
+load errors and allow remaining fields to be processed. Number conversion now
+returns `MISSING` for invalid types, out-of-range values/defaults, and required
+None values, recording one error instead of raising. Invalid explicit values do
+not fall back to a default or become an allowed None. The shared loader now stores
+`MISSING` and continues after an omitted required field instead of returning early.
+Consumers must inspect load diagnostics before using a configuration.
+
+Tests verify direct conversion, construction, and `from_dict`, including multiple
+errors with field contexts, later valid/default/optional fields, and trailing
+unused-argument warnings. Other selectors retain their existing conversion
+exception behavior; collecting every selector's errors and propagating nested
+Object diagnostics remain separate work. This supersedes the Number runtime
+exception contract recorded in the historical entries below.
+
+Verification: **277 passed, 1 intentionally failed** (review checkpoint retained).
+Ruff and diff whitespace checks pass. No live HA/Pyscript verification.
 
 ### Date and DateTime selectors (2026-10-13)
 
