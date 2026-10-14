@@ -26,8 +26,10 @@ class BlueprintItem(ABC):
 
     def __init__(
         self,
+        *args: Any,
         **field_arguments,
     ):
+        self._unexpected_positional_arguments = args
         self._original_field_arguments = field_arguments
         # This is a local copy of the arguments. Used during argument consumption.
         self._field_args = {}
@@ -146,7 +148,9 @@ class BlueprintItem(ABC):
         from .config import BlueprintConfig
         from .fields.input_section import InputSection
 
-        if isinstance(self, FieldItem) or issubclass(self._parent_class, BlueprintConfig):
+        if isinstance(self, FieldItem) or issubclass(
+            self._parent_class, BlueprintConfig
+        ):
             type_checking |= frozenset(
                 [
                     ParamTypeChk("section", InputSection, None),
@@ -156,13 +160,20 @@ class BlueprintItem(ABC):
         for parameter_chk in type_checking:
             self._consume_arg(parameter_chk)
 
-        # Check for any remaining unused field arguments
-        # Give a warning because the parameter will be ignored
-        for parameter_name, value in self._field_args.items():
-            self._validate_diagnostics.warning(
-                f"From field {self._field_name}: "
-                f"Unused field argument: {parameter_name}={value}"
-            )
+        # Unsupported arguments must not prevent validation of other fields.
+        with diag.child(field_name):
+            for index, value in enumerate(
+                self._unexpected_positional_arguments, start=1
+            ):
+                diag.error(
+                    f"Unexpected positional argument {index}={value!r}; "
+                    f"{type(self).__name__} options must be supplied by keyword"
+                )
+            for parameter_name, value in self._field_args.items():
+                diag.error(
+                    f"Unexpected keyword argument {parameter_name}={value!r} "
+                    f"for {type(self).__name__}"
+                )
         self._validate_diagnostics = None
 
     @abstractmethod
@@ -187,7 +198,7 @@ class FieldItem(BlueprintItem, ABC):
             "with no default and 'allow_none' false"
         )
         diag.error(message)
-        raise ValueError(message)
+        return MISSING
 
     @abstractmethod
     def convert(self, value: Any, diag: Diagnostics) -> Any: ...

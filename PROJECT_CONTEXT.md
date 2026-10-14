@@ -1,6 +1,6 @@
 # Project context: blueprint-config
 
-Last inspected: 2026-10-13. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes split selectors into individual modules while preserving their public imports and existing behavior. Boolean and Number retain their explicit typed constructors; Object now uses its declared EmbeddedObject type for rendering and conversion. Date and DateTime provide typed declarations, Python date/datetime conversion, and string defaults for generated YAML.
+Last inspected: 2026-10-13. This document is the starting point for a new AI conversation. It records the actual checkout separately from older designs and future work. Recent changes split selectors into individual modules while preserving their public imports and existing behavior. Boolean, Number, Date, DateTime, and Time expose typed options and accumulate validation diagnostics. Object uses its declared EmbeddedObject type and propagates nested load diagnostics. All field suites and InputSection tests now use per-test human review markers.
 
 ## Goal
 
@@ -30,9 +30,9 @@ fields, and avoid duplicate or cascading errors from a value already rejected.
 Use `MISSING` for an invalid loaded value rather than silently substituting a
 default or an allowed None. Callers inspect diagnostics before using the result.
 Be conservative about exceptions; internal programming errors need not be hidden
-by broad exception handling. This is the intended project-wide policy, not a
-claim that every existing selector already follows it. The exception inventory
-below records remaining work.
+by broad exception handling. All current selectors implement this for ordinary field validation. Blueprint
+metadata validation and internal programming errors still have exception paths;
+see the latest implementation entry below for the scope and limitations.
 
 ### Human review of tests
 
@@ -64,20 +64,24 @@ def test_example():
   modified by a run. Do not put the override in default pytest options.
 - One function marker covers its parameterized cases; changing the case list
   resets that function's approval. The pending summary lists selected cases.
-- Pilot scope: `test/fields/test_number.py` and the new infrastructure regression
-  tests in `test/test_review_workflow.py` opt in with the module marker
+- Scope: all modules in `test/fields/`, `test/config_object/test_input_section.py`,
+  and `test/test_review_workflow.py` opt in with the module marker
   `pytestmark = pytest.mark.review_required`. Missing per-test approval markers
-  count as pending there. Explicit reviewed(False) markers are honored anywhere.
-  Unmigrated modules remain outside enforcement, not implicitly approved.
+  count as pending there. Explicit reviewed(False) markers are honored anywhere,
+  including the changed extra-argument test in `test_simple_config.py`.
+  Remaining unmigrated modules are outside enforcement, not implicitly approved.
 - Existing Number tests were migrated to reviewed(True) because the user already
   approved them with the module checkpoint. Their behavioral assertions were
   unchanged. The original passing checkpoint is retained as a historical record;
-  individual markers now govern future edits. New infrastructure tests remain
-  reviewed(False), awaiting the user.
+  individual markers now govern future edits. One shared Number/Boolean
+  constructor-signature test was changed for Boolean's new handling and reset to
+  False. Other Number approvals remain True. Other field/InputSection suites have
+  no recorded approval and were migrated to False, including unchanged tests.
+  Infrastructure and newly added tests also remain False, awaiting the user.
 - This relies on agents resetting the marker; automatic detection of edits
   would require additional tracking and is not implemented.
 
-Run the Number pilot normally:
+Run a field suite normally (pending reviews will fail):
 
 ```sh
 uv run python -m pytest -q -p no:cacheprovider test/fields/test_number.py
@@ -103,7 +107,7 @@ There is no `attrs` dependency or frozen configuration implementation in this ch
 | --- | --- |
 | [src/blueprint_config/config.py](src/blueprint_config/config.py) | `BaseConfig` registration, declaration inspection, construction, diagnostics, `from_dict`; `BlueprintConfig` metadata/YAML generation; `EmbeddedObject` rendering. |
 | [src/blueprint_config/items.py](src/blueprint_config/items.py) | `BlueprintItem`, `FieldItem`, argument consumption and validation; compatibility import for `InputSection`. |
-| [src/blueprint_config/fields/](src/blueprint_config/fields/) | One module per selector (`boolean.py`, `date.py`, `datetime.py`, `number.py`, `object.py`, `time.py`), plus `input_section.py` for `InputSection`, re-exported by `fields/__init__.py`. `Boolean`, `Number`, `Date`, and `DateTime` have explicit typed keyword-only constructors; `Time` and `Object` retain the older API. `Number` is exported alongside `Boolean` and `Object`. |
+| [src/blueprint_config/fields/](src/blueprint_config/fields/) | One module per selector (`boolean.py`, `date.py`, `datetime.py`, `number.py`, `object.py`, `time.py`), plus `input_section.py` for `InputSection`, re-exported by `fields/__init__.py`. `Boolean`, `Number`, `Date`, `DateTime`, and `Time` have explicit typed keyword-only options; `Object` retains its generic constructor. All capture unsupported arguments as build errors. `Number` is exported alongside `Boolean` and `Object`. |
 | [src/blueprint_config/diagnostic.py](src/blueprint_config/diagnostic.py) | Severity-filtered diagnostics and a context-manager path mechanism. |
 | [src/blueprint_config/types.py](src/blueprint_config/types.py) | `MISSING`, `Status`, `ParamTypeChk`, `InputRef`. |
 | [src/blueprint_config/util.py](src/blueprint_config/util.py) | PyYAML dumper preserving field order, multiline strings, and `!input` references. |
@@ -122,17 +126,56 @@ Not implemented in this checkout: Home Assistant script discovery/execution, con
 
 ### Current verification baseline (2026-10-13)
 
-With `--allow-unreviewed`, the full suite reports **297 passed**. The default
-run reports **281 passed, 16 failed solely for pending review**, all in the six
-new review-workflow test functions. The Number module alone reports **76 passed**
-without an override, preserving the user's approval. Infrastructure regressions
-exercise approved/pending/missing markers, the override, behavioral failure
-preservation, malformed markers, parameterization/selection, skipped tests,
-unmigrated modules, and source approval preservation in isolated pytest processes.
-Ruff checks for `src` and `test` and diff whitespace checks pass. Tests ran with
-`uv run python -m pytest -q -p no:cacheprovider` with and without the review
-override. This supersedes earlier baselines
-below. Home Assistant and Pyscript runtime behavior remains unverified.
+With `--allow-unreviewed`, the full suite reports **335 passed**. The default
+run reports **85 passed, 250 failed solely for pending review**. All field and
+InputSection test modules now enforce per-test review. Most Number tests retain
+approval; other migrated tests and new regressions await review. The review gate
+is not a behavioral failure. Ruff and diff whitespace checks pass. Tests ran
+with and without `--allow-unreviewed`; no live Home Assistant/Pyscript run occurred.
+
+### Diagnostic accumulation across fields (2026-10-13)
+
+Extended the Number policy to Boolean, Date, DateTime, Time, Object, and
+InputSection declaration arguments. Shared argument handling in BlueprintItem
+records unsupported positional/keyword arguments as build ERRORs with field
+paths (previous generic-constructor unknown-keyword warnings are now errors).
+Typed selectors retain explicit keyword-only options alongside catch-all
+arguments. Shared required-None resolution records an error and returns MISSING;
+all converters propagate that result without duplicate diagnostics. Number's
+behavior is preserved while using this shared handling.
+
+Boolean and calendar/time input validation records load errors and returns
+MISSING rather than aborting later fields. Time now has a typed constructor,
+validated ISO-string/Python-time defaults, string YAML defaults, and explicit
+runtime type checks; it remains exported through `blueprint_config.fields`.
+
+Object validates mapping/list structure and string keys before construction.
+Malformed list elements become MISSING in place while later elements load.
+Valid mappings yield embedded instances even when some fields are MISSING.
+Diagnostics.extend copies child errors/warnings into the parent with field/index
+prefixes, preserves local child paths, and updates parent error status while
+honoring severity filtering. Object defaults are checked, including nested
+values; invalid defaults produce build errors and become MISSING. Missing/invalid
+object_type produces build/load errors; rendering emits an empty fields mapping
+for inspection rather than raising. This is not a valid-schema guarantee:
+consumers must inspect build diagnostics before using generated YAML.
+
+Added Time and mixed-field accumulation suites, including nested list errors,
+warning propagation, independent loads, invalid Object defaults/shapes/keys,
+continued later values, None/default precedence, false/empty values, and build
+argument errors across multiple fields. Updated exception-expecting tests to
+assert diagnostics. Review markers cover all field/InputSection tests without
+inventing human approval. One existing Number test covers Boolean signatures
+and changed accordingly, so its approval is reset to False.
+
+Remaining boundaries: blueprint metadata/path validation and invalid top-level
+from_dict calls can still raise; internal guards and unexpected programming
+errors are not broadly swallowed. Number conversion can still overflow for an
+extremely large integer, and YAML serialization can fail on unsupported data.
+Python rejects malformed argument unpacking/duplicate keywords before a
+constructor runs. Inheritance discovery, full schema parity, and live HA/Pyscript
+behavior remain unverified. Earlier exception inventories below are historical
+and superseded by this entry.
 
 ### Number test review checkpoint (2026-10-13)
 
@@ -164,7 +207,7 @@ validation of the same and later fields. This supersedes the historical Number
 constructor TypeError contract. Verification: **280 passed, 1 intentionally
 failed** (review checkpoint); Ruff and diff whitespace checks pass.
 
-Remaining exception paths found by source inspection:
+Historical exception inventory before the cross-field migration:
 
 - Boolean invalid runtime types; shared required-None resolution (Number catches
   this internally). Boolean, Date, and DateTime reject unsupported constructor

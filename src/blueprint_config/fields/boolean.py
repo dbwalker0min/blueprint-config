@@ -11,7 +11,7 @@ from .input_section import InputSection
 class Boolean(FieldItem):
     """A toggle input. Arguments are checked when its configuration class is built.
 
-    Unknown keywords raise TypeError at construction. A missing/None runtime value
+    Unsupported arguments become build errors. A missing/None runtime value
     uses the declared default, then allow_none; explicit False is preserved.
     """
 
@@ -21,26 +21,30 @@ class Boolean(FieldItem):
 
     def __init__(
         self,
-        *,
+        *args: Any,
         name: str = "",
         description: str = "",
         default: bool | Missing = MISSING,
         allow_none: bool = False,
         section: InputSection | None = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(
+            *args,
             name=name,
             description=description,
             default=default,
             allow_none=allow_none,
             **({"section": section} if section is not None else {}),
+            **kwargs,
         )
 
-    def convert(self, value: bool | None, diag: Diagnostics) -> bool | None:
+    def convert(self, value: bool | None, diag: Diagnostics) -> bool | None | Missing:
         value = self._resolve_none(value, diag)
-        if value is None or isinstance(value, bool):
+        if value is MISSING or value is None or isinstance(value, bool):
             return value
-        raise TypeError(f"Value of Boolean is not boolean or None {value!r}")
+        diag.error(f"Value of Boolean is not boolean or None {value!r}")
+        return MISSING
 
     def selector(self) -> dict[str, Any]:
         return {"boolean": {}}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from enum import IntEnum, auto
 from typing import NamedTuple
@@ -34,6 +34,8 @@ class Diagnostics:
         self,
         msg: str,
         severity: DiagnosticSeverity,
+        *,
+        context: str | None = None,
     ):
         """Post a diagnostic message to the diagnostics list with a field name."""
         if severity == DiagnosticSeverity.ERROR:
@@ -42,7 +44,20 @@ class Diagnostics:
         # Prepend the field name or path to the message if applicable.
         if severity <= self.diagnostic_level:
             self._diagnostics.append(
-                DiagnosticMessage(severity=severity, message=msg, context=self.context)
+                DiagnosticMessage(
+                    severity=severity,
+                    message=msg,
+                    context=self.context if context is None else context,
+                )
+            )
+
+    def extend(self, messages: Iterable[DiagnosticMessage]) -> None:
+        """Copy nested messages, prefixing their paths with the current context."""
+        for message in messages:
+            self._post(
+                message.message,
+                message.severity,
+                context=self.context + message.context,
             )
 
     def error(self, msg: str):

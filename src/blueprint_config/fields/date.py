@@ -13,7 +13,7 @@ class Date(FieldItem):
     """A date input, converted to a Python date.
 
     Defaults accept strings or Python values and are emitted as ISO strings.
-    Invalid declarations produce build diagnostics; invalid runtime values raise.
+    Invalid declarations and runtime values accumulate diagnostics.
     Missing/None values use the default, then allow_none. No timezone is inferred.
     """
 
@@ -23,19 +23,22 @@ class Date(FieldItem):
 
     def __init__(
         self,
-        *,
+        *args: Any,
         name: str = "",
         description: str = "",
         default: str | dt.date | Missing = MISSING,
         allow_none: bool = False,
         section: InputSection | None = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(
+            *args,
             name=name,
             description=description,
             default=default,
             allow_none=allow_none,
             **({"section": section} if section is not None else {}),
+            **kwargs,
         )
 
     def validate(self, parent, field_name: str, diag: Diagnostics | None):
@@ -60,15 +63,17 @@ class Date(FieldItem):
             return value
         raise TypeError(f"Value of Date is not a date or string {value!r}")
 
-    def convert(self, value: str | dt.date | None, diag: Diagnostics) -> dt.date | None:
+    def convert(
+        self, value: str | dt.date | None, diag: Diagnostics
+    ) -> dt.date | None | Missing:
         value = self._resolve_none(value, diag)
-        if value is None:
-            return None
+        if value is MISSING or value is None:
+            return value
         try:
             return self._parse(value)
         except (TypeError, ValueError) as exc:
             diag.error(str(exc))
-            raise
+            return MISSING
 
     def selector(self) -> dict[str, Any]:
         return {"date": {}}

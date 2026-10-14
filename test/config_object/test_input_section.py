@@ -14,7 +14,10 @@ from blueprint_config import (
     dump_yaml,
 )
 
+pytestmark = pytest.mark.review_required
 
+
+@pytest.mark.reviewed(False)
 def test_input_section():
     class MyInputSection(BlueprintConfig):
         blueprint_name = "my_input_section"
@@ -57,6 +60,7 @@ mode: single
 
 
 @pytest.mark.parametrize("section_first", [True, False])
+@pytest.mark.reviewed(False)
 def test_collapsed_section_reports_each_missing_default(section_first):
     section = InputSection(collapsed=True)
     declarations = {
@@ -89,6 +93,7 @@ def test_collapsed_section_reports_each_missing_default(section_first):
 
 
 @pytest.mark.parametrize("options", [{}, {"collapsed": False}])
+@pytest.mark.reviewed(False)
 def test_expanded_section_does_not_require_defaults(options):
     class Config(BlueprintConfig):
         blueprint_name = "Expanded inputs"
@@ -98,6 +103,7 @@ def test_expanded_section_does_not_require_defaults(options):
     assert Config.get_build_diagnostics() == []
 
 
+@pytest.mark.reviewed(False)
 def test_collapsed_section_accepts_false_zero_and_empty_defaults():
     class Schema(EmbeddedObject):
         enabled = Boolean(default=False)
@@ -123,6 +129,7 @@ def test_collapsed_section_accepts_false_zero_and_empty_defaults():
     assert inputs["empty_list"]["default"] == []
 
 
+@pytest.mark.reviewed(False)
 def test_empty_collapsed_section_has_no_missing_defaults():
     class Config(BlueprintConfig):
         blueprint_name = "Empty section"
@@ -133,6 +140,7 @@ def test_empty_collapsed_section_has_no_missing_defaults():
 
 @pytest.mark.parametrize("collapsed", [False, True])
 @pytest.mark.parametrize("parent_first", [False, True])
+@pytest.mark.reviewed(False)
 def test_nested_sections_produce_build_error(collapsed, parent_first):
     parent = InputSection()
     child = InputSection(section=parent, collapsed=collapsed)
@@ -159,6 +167,7 @@ def test_nested_sections_produce_build_error(collapsed, parent_first):
     )
 
 
+@pytest.mark.reviewed(False)
 def test_nesting_error_does_not_hide_missing_default_error_or_custom_validation():
     class Config(BlueprintConfig):
         blueprint_name = "Invalid nesting and defaults"
@@ -201,6 +210,7 @@ def test_nesting_error_does_not_hide_missing_default_error_or_custom_validation(
         {"section": InputSection},
     ],
 )
+@pytest.mark.reviewed(False)
 def test_invalid_section_arguments_produce_build_errors(kwargs):
     class Config(BlueprintConfig):
         blueprint_name = "Invalid section argument"
@@ -213,6 +223,7 @@ def test_invalid_section_arguments_produce_build_errors(kwargs):
     assert "Expected type" in diagnostics[0].message
 
 
+@pytest.mark.reviewed(False)
 def test_unknown_section_argument_is_reported_and_omitted():
     class Config(BlueprintConfig):
         blueprint_name = "Unknown section argument"
@@ -220,8 +231,9 @@ def test_unknown_section_argument_is_reported_and_omitted():
 
     diagnostics = Config.get_build_diagnostics()
     assert len(diagnostics) == 1
-    assert diagnostics[0].severity == DiagnosticSeverity.WARNING
-    assert "Unused field argument: typo=True" in diagnostics[0].message
+    assert diagnostics[0].severity == DiagnosticSeverity.ERROR
+    assert diagnostics[0].context == ".options"
+    assert "Unexpected keyword argument typo=True" in diagnostics[0].message
     assert Config.blueprint_fragment() == {"options": {"input": {}}}
 
 
@@ -229,6 +241,7 @@ def test_unknown_section_argument_is_reported_and_omitted():
     "kwargs",
     [{}, {"name": "", "description": "", "icon": "", "collapsed": False}],
 )
+@pytest.mark.reviewed(False)
 def test_empty_section_omits_empty_metadata(kwargs):
     class Config(BlueprintConfig):
         blueprint_name = "Empty metadata"
@@ -238,6 +251,7 @@ def test_empty_section_omits_empty_metadata(kwargs):
     assert Config.blueprint_fragment() == {"options": {"input": {}}}
 
 
+@pytest.mark.reviewed(False)
 def test_section_metadata_and_collapsed_flag_survive_yaml_serialization():
     class Config(BlueprintConfig):
         blueprint_name = "Section metadata"
@@ -264,6 +278,7 @@ def test_section_metadata_and_collapsed_flag_survive_yaml_serialization():
     }
 
 
+@pytest.mark.reviewed(False)
 def test_multiple_sections_keep_members_separate_ordered_and_values_flat():
     class Config(BlueprintConfig):
         blueprint_name = "Multiple sections"
@@ -303,6 +318,7 @@ def test_multiple_sections_keep_members_separate_ordered_and_values_flat():
     assert "!input 'second'" not in sequence
 
 
+@pytest.mark.reviewed(False)
 def test_input_section_import_paths_preserve_class_identity():
     from blueprint_config.config import InputSection as ConfigSection
     from blueprint_config.fields import InputSection as FieldsSection

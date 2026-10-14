@@ -221,11 +221,11 @@ def test_number_build_collects_argument_errors_and_other_field_errors():
 @pytest.mark.parametrize("selector", [Boolean, Number])
 @pytest.mark.reviewed(True)
 def test_public_constructor_has_resolvable_keyword_annotations(selector):
-    # Supported options stay explicit even when Number captures invalid arguments.
+    # Supported options stay explicit while selectors capture invalid arguments.
     signature = inspect.signature(selector)
     hints = get_type_hints(selector.__init__)
     for name, parameter in signature.parameters.items():
-        if selector is Number and name in ("args", "kwargs"):
+        if name in ("args", "kwargs"):
             assert parameter.kind in (
                 inspect.Parameter.VAR_POSITIONAL,
                 inspect.Parameter.VAR_KEYWORD,

@@ -154,10 +154,17 @@ def test_simple_bp_object_missing_and_default():
     assert mybp.check is True
 
 
+@pytest.mark.reviewed(False)
 def test_simple_bp_object_with_extra_parameter():
-    # Explicit constructor signatures reject typos instead of silently ignoring them.
-    with pytest.raises(TypeError, match="unexpected keyword argument 'extra'"):
-        Boolean(name="Check", extra="asdf")
+    class MyBP(BlueprintConfig):
+        blueprint_name = "Extra argument"
+        check = Boolean(name="Check", extra="asdf")
+
+    diagnostics = MyBP.get_build_diagnostics()
+    assert len(diagnostics) == 1
+    assert diagnostics[0].severity == DiagnosticSeverity.ERROR
+    assert diagnostics[0].context == ".check"
+    assert "Unexpected keyword argument extra='asdf'" in diagnostics[0].message
 
 
 def test_simple_bp_object_with_extra_parameter_load():

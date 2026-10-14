@@ -20,6 +20,8 @@ from blueprint_config import (
     dump_yaml,
 )
 
+pytestmark = pytest.mark.review_required
+
 
 @pytest.fixture(
     params=[
@@ -39,6 +41,7 @@ def bind(field):
     return Config
 
 
+@pytest.mark.reviewed(False)
 def test_conversion_and_public_imports(case):
     selector, key, text, expected = case
     from blueprint_config import fields
@@ -59,11 +62,13 @@ def test_conversion_and_public_imports(case):
     assert all(
         p.kind is inspect.Parameter.KEYWORD_ONLY
         for n, p in inspect.signature(selector).parameters.items()
+        if n not in ("args", "kwargs")
     )
 
 
 @pytest.mark.parametrize("as_string", [True, False])
 @pytest.mark.parametrize("allow_none", [True, False])
+@pytest.mark.reviewed(False)
 def test_defaults_and_yaml(case, as_string, allow_none):
     selector, key, text, expected = case
     config_type = bind(
@@ -92,6 +97,7 @@ def test_defaults_and_yaml(case, as_string, allow_none):
     assert blueprint["blueprint"]["input"]["value"]["default"] == text
 
 
+@pytest.mark.reviewed(False)
 def test_optional_missing_and_required(case):
     selector, _, _, _ = case
     optional = bind(selector(default=MISSING, allow_none=True))
@@ -101,9 +107,10 @@ def test_optional_missing_and_required(case):
     required = bind(selector())
     assert required().get_load_diagnostics()[0].context == ".value"
     diag = Diagnostics()
-    with pytest.raises(ValueError, match="no default"):
-        required.value.convert(None, diag)
+    assert required.value.convert(None, diag) is MISSING
     assert diag.has_error
+    assert len(diag.diagnostics) == 1
+    assert "no default" in diag.diagnostics[0].message
 
 
 @pytest.mark.parametrize(
@@ -124,6 +131,7 @@ def test_optional_missing_and_required(case):
         {"default": "garbage"},
     ],
 )
+@pytest.mark.reviewed(False)
 def test_invalid_declarations(case, kwargs):
     config_type = bind(case[0](**kwargs))
     diagnostics = config_type.get_build_diagnostics()
@@ -132,13 +140,14 @@ def test_invalid_declarations(case, kwargs):
 
 
 @pytest.mark.parametrize("value", [False, 0, 1.5, [], {}, dt.time(12)])
+@pytest.mark.reviewed(False)
 def test_invalid_runtime_types_even_with_default(case, value):
     selector, _, text, _ = case
     field = bind(selector(default=text)).value
     diag = Diagnostics()
-    with pytest.raises(TypeError):
-        field.convert(value, diag)
+    assert field.convert(value, diag) is MISSING
     assert diag.has_error
+    assert len(diag.diagnostics) == 1
 
 
 @pytest.mark.parametrize(
@@ -167,12 +176,18 @@ def test_invalid_runtime_types_even_with_default(case, value):
         (DateTime, "no date"),
     ],
 )
+@pytest.mark.reviewed(False)
 def test_invalid_values_and_defaults(selector, value):
     config_type = bind(selector())
     diag = Diagnostics()
-    with pytest.raises((TypeError, ValueError)), diag.child(leaf="value"):
-        config_type.value.convert(value, diag)
+    with diag.child(leaf="value"):
+        assert config_type.value.convert(value, diag) is MISSING
+    assert len(diag.diagnostics) == 1
+    assert diag.has_error
     assert diag.diagnostics[0].context == ".value"
+    loaded = config_type(value=value)
+    assert loaded.value is MISSING
+    assert loaded.get_load_diagnostics() == diag.diagnostics
     invalid = bind(selector(default=value))
     assert len(invalid.get_build_diagnostics()) == 1
     assert "default" not in invalid.blueprint_fragment()["value"]
@@ -192,6 +207,7 @@ def test_invalid_values_and_defaults(selector, value):
         ),
     ],
 )
+@pytest.mark.reviewed(False)
 def test_datetime_precision_and_offsets(text, expected):
     config_type = bind(DateTime(default=text))
     assert config_type().value == expected
@@ -204,15 +220,22 @@ def test_datetime_precision_and_offsets(text, expected):
     assert dt.datetime.fromisoformat(default) == expected
 
 
-def test_constructor_rejects_unknown_options_and_positional_arguments(case):
+@pytest.mark.reviewed(False)
+def test_constructor_records_unknown_options_and_positional_arguments(case):
     selector = case[0]
     for kwargs in ({"min": "2024-01-01"}, {"read_only": True}, {"defualt": "oops"}):
-        with pytest.raises(TypeError, match="unexpected keyword"):
-            selector(**kwargs)
-    with pytest.raises(TypeError):
-        selector("When")
+        config_type = bind(selector("When", default=case[2], **kwargs))
+        diagnostics = config_type.get_build_diagnostics()
+        assert len(diagnostics) == 2
+        assert all(
+            d.severity.name == "ERROR" and d.context == ".value" for d in diagnostics
+        )
+        assert "positional argument" in diagnostics[0].message
+        assert next(iter(kwargs)) in diagnostics[1].message
+        assert config_type().value == case[3]
 
 
+@pytest.mark.reviewed(False)
 def test_sections_and_embedded_objects(case):
     selector, key, text, expected = case
 
@@ -247,6 +270,7 @@ def test_sections_and_embedded_objects(case):
     assert Settings().value == expected
 
 
+@pytest.mark.reviewed(False)
 def test_datetime_default_preserves_fractional_offset():
     offset = dt.timezone(dt.timedelta(hours=1, seconds=30, microseconds=123456))
     expected = dt.datetime(2024, 2, 29, 13, 30, tzinfo=offset)

@@ -58,9 +58,8 @@ class Number(FieldItem):
         mode: Literal["box", "slider"] | Missing = MISSING,
         **kwargs: Any,
     ) -> None:
-        self._unexpected_positional_arguments = args
-        self._unexpected_keyword_arguments = kwargs
         super().__init__(
+            *args,
             name=name,
             description=description,
             default=default,
@@ -71,21 +70,12 @@ class Number(FieldItem):
             unit_of_measurement=unit_of_measurement,
             mode=mode,
             **({"section": section} if section is not None else {}),
+            **kwargs,
         )
 
     def validate(self, parent, field_name: str, diag: Diagnostics | None):
         super().validate(parent, field_name, diag)
         assert diag is not None
-        with diag.child(field_name):
-            for index, value in enumerate(
-                self._unexpected_positional_arguments, start=1
-            ):
-                diag.error(
-                    f"Unexpected positional argument {index}={value!r}; "
-                    "Number options must be supplied by keyword"
-                )
-            for name, value in self._unexpected_keyword_arguments.items():
-                diag.error(f"Unexpected keyword argument {name}={value!r} for Number")
         if self.mode == "slider" and (self.min is MISSING or self.max is MISSING):
             diag.error(
                 f"From field {field_name}: min and max are required in slider mode"
@@ -105,13 +95,9 @@ class Number(FieldItem):
         return None
 
     def convert(self, value: float | None, diag: Diagnostics) -> float | None | Missing:
-        try:
-            value = self._resolve_none(value, diag)
-        except ValueError:
-            # The shared resolver has already recorded the missing-value error.
-            return MISSING
-        if value is None:
-            return None
+        value = self._resolve_none(value, diag)
+        if value is MISSING or value is None:
+            return value
         if type(value) not in (int, float):
             diag.error(f"Value of Number is not numeric or None {value!r}")
             return MISSING

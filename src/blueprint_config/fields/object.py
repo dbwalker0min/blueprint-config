@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from ..diagnostic import Diagnostics
@@ -40,29 +41,54 @@ class Object(FieldItem):
             )
         self._valid_fields.add("object_type")
 
-    def _get_object_type(self) -> type[EmbeddedObject]:
-        object_type = getattr(self, "object_type", None)
-        if object_type is None:
-            raise TypeError(
-                "'object_type' must be a class derived from 'EmbeddedObject'"
-            )
-        return object_type
+    def validate(self, parent, field_name: str, diag: Diagnostics | None):
+        super().validate(parent, field_name, diag)
+        assert diag is not None
+        if self.object_type is not None and self.default is not MISSING:
+            default_diag = Diagnostics()
+            with default_diag.child(field_name), default_diag.child("default"):
+                self.convert(self.default, default_diag)
+            diag.extend(default_diag.diagnostics)
+            if default_diag.has_error:
+                self.default = MISSING
+
+    def _convert_one(self, value: Any, diag: Diagnostics):
+        if not isinstance(value, Mapping) or any(not isinstance(k, str) for k in value):
+            diag.error("Object value must be a mapping with string keys")
+            return MISSING
+        instance = self.object_type.from_dict(value)
+        diag.extend(instance.get_load_diagnostics())
+        return instance
 
     def convert(self, value: Any, diag: Diagnostics):
-        object_type = self._get_object_type()
+        if self.object_type is None:
+            diag.error("'object_type' must be a class derived from 'EmbeddedObject'")
+            return MISSING
 
         multiple = getattr(self, "multiple", False)
         value = self._resolve_none(value, diag)
+        if value is MISSING:
+            return MISSING
         if value is None:
             return [] if multiple else None
 
         if multiple:
-            return [object_type.from_dict(item) for item in value]
+            if not isinstance(value, list):
+                diag.error("Multiple Object value must be a list of mappings")
+                return MISSING
+            result = []
+            for index, item in enumerate(value):
+                with diag.child(index):
+                    result.append(self._convert_one(item, diag))
+            return result
 
-        return object_type.from_dict(value)
+        return self._convert_one(value, diag)
 
     def selector(self) -> dict:
-        obj: dict[str, Any] = {"fields": self._get_object_type().blueprint_fragment()}
+        # Invalid declarations already have build errors; rendering stays inspectable.
+        obj: dict[str, Any] = {
+            "fields": self.object_type.blueprint_fragment() if self.object_type else {}
+        }
 
         if getattr(self, "multiple", False):
             obj["multiple"] = True
